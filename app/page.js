@@ -5,6 +5,12 @@ const supabase = createClient(
   "https://ltksgxmuxclhjpaizfpi.supabase.co",
   "sb_publishable_4yKGirSU8m5aL1-jy6xNTA_j8_pdYeV"
 );
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  "https://ltksgxmuxclhjpaizfpi.supabase.co",
+  "sb_publishable_4yKGirSU8m5aL1-jy6xNTA_j8_pdYeV"
+);
 
 import React, { useEffect, useMemo, useState } from "react";
 
@@ -336,7 +342,7 @@ export default function Home() {
 
   const orderId = `NV-${Date.now().toString().slice(-6)}`;
 
-  const { error } = await supabase.from("orders").insert([
+  const { error: orderError } = await supabase.from("orders").insert([
     {
       id: orderId,
       branch_id: selectedBranchId,
@@ -348,24 +354,31 @@ export default function Home() {
     },
   ]);
 
-  if (!error) {
-    const itemsToInsert = cart.map((item) => ({
-      order_id: orderId,
-      item_id: item.itemId,
-      name: item.name,
-      variant: item.variant,
-      price: item.price,
-      qty: item.qty,
-    }));
-
-    await supabase.from("order_items").insert(itemsToInsert);
-
-    alert("Заказ отправлен 🚀");
-    setCart([]);
-  } else {
+  if (orderError) {
     alert("Ошибка отправки заказа");
-    console.error(error);
+    console.error(orderError);
+    return;
   }
+
+  const itemsToInsert = cart.map((item) => ({
+    order_id: orderId,
+    item_id: item.itemId,
+    name: item.name,
+    variant: item.variant || null,
+    price: item.price,
+    qty: item.qty,
+  }));
+
+  const { error: itemsError } = await supabase.from("order_items").insert(itemsToInsert);
+
+  if (itemsError) {
+    alert("Заказ создан, но позиции заказа не сохранились");
+    console.error(itemsError);
+    return;
+  }
+
+  alert("Заказ отправлен");
+  setCart([]);
 };
 
   const cancelOrder = (orderId) => {
