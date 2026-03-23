@@ -331,22 +331,42 @@ export default function Home() {
     );
   };
 
-  const placeOrder = () => {
-    if (!cart.length || !branchOrderAllowed) return;
-    const order = {
-      id: `NV-${Date.now().toString().slice(-6)}`,
-      branchId: selectedBranchId,
-      branchName: branch.name,
+  const placeOrder = async () => {
+  if (!cart.length || !branchOrderAllowed) return;
+
+  const orderId = `NV-${Date.now().toString().slice(-6)}`;
+
+  const { error } = await supabase.from("orders").insert([
+    {
+      id: orderId,
+      branch_id: selectedBranchId,
+      branch_name: branch.name,
       status: "new",
-      paymentMethod: "СБП",
-      paymentStatus: "pending",
-      items: cart,
+      payment_method: "СБП",
+      payment_status: "pending",
       total: cartTotal,
-      createdAt: new Date().toLocaleString("ru-RU"),
-    };
-    setOrders((prev) => [order, ...prev]);
+    },
+  ]);
+
+  if (!error) {
+    const itemsToInsert = cart.map((item) => ({
+      order_id: orderId,
+      item_id: item.itemId,
+      name: item.name,
+      variant: item.variant,
+      price: item.price,
+      qty: item.qty,
+    }));
+
+    await supabase.from("order_items").insert(itemsToInsert);
+
+    alert("Заказ отправлен 🚀");
     setCart([]);
-  };
+  } else {
+    alert("Ошибка отправки заказа");
+    console.error(error);
+  }
+};
 
   const cancelOrder = (orderId) => {
     setOrders((prev) =>
