@@ -1,0 +1,299 @@
+import type { Product } from './types';
+
+export const categories = [
+  { id: 'shawarma', label: 'Шаурма' },
+  { id: 'burgers', label: 'Бургеры' },
+  { id: 'hotdogs', label: 'Хот-доги' },
+  { id: 'quesadilla', label: 'Кесадилья' },
+  { id: 'fryer', label: 'Фритюр' },
+  { id: 'sauces', label: 'Соусы' },
+  { id: 'drinks', label: 'Напитки' },
+  { id: 'coffee', label: 'Кофе' },
+  { id: 'desserts', label: 'Десерты' }
+] as const;
+
+export const products: Product[] = [
+  {
+    id: 'shawarma-na-virazhah-chicken',
+    category: 'shawarma',
+    name: 'Шаурма «На Виражах» — курица',
+    description: 'Курица, томат, огурец, пекинская капуста, фирменный соус в лаваше.',
+    price: 260,
+    tags: ['хит']
+  },
+  {
+    id: 'shawarma-na-virazhah-pork',
+    category: 'shawarma',
+    name: 'Шаурма «На Виражах» — свинина',
+    description: 'Свинина, томат, огурец, пекинская капуста, фирменный соус в лаваше.',
+    price: 270
+  },
+  {
+    id: 'shawarma-cesario',
+    category: 'shawarma',
+    name: 'Шаурма «Цезарио» — курица',
+    description: 'Курица, сыр, сухарики, овощи и соус в стиле цезарь.',
+    price: 290
+  },
+  {
+    id: 'shawarma-redjet-chicken',
+    category: 'shawarma',
+    name: 'Шаурма «Ред.Джет» — курица',
+    description: 'Курица, фирменный и острый соусы, халапеньо, овощи.',
+    price: 290,
+    tags: ['острая']
+  },
+  {
+    id: 'shawarma-redjet-pork',
+    category: 'shawarma',
+    name: 'Шаурма «Ред.Джет» — свинина',
+    description: 'Свинина, фирменный и острый соусы, халапеньо, овощи.',
+    price: 320,
+    tags: ['острая']
+  },
+  {
+    id: 'burger-chicken-cargo',
+    category: 'burgers',
+    name: 'Чикен Карго',
+    description: 'Бургер с куриным филе, сыром, овощами и соусом.',
+    price: 300
+  },
+  {
+    id: 'burger-cheeseburger',
+    category: 'burgers',
+    name: 'Чизбургер',
+    description: 'Говяжья котлета, сыр чеддер, овощи, соус, булочка.',
+    price: 299
+  },
+  {
+    id: 'burger-double-cheese',
+    category: 'burgers',
+    name: 'Двойной чизбургер',
+    description: 'Две говяжьи котлеты, двойной сыр, овощи, соус.',
+    price: 429
+  },
+  {
+    id: 'burger-forsazh',
+    category: 'burgers',
+    name: 'Форсаж',
+    description: 'Сочный бургер с говядиной, овощами и фирменным соусом.',
+    price: 319
+  },
+  {
+    id: 'burger-krutoy-forsazh',
+    category: 'burgers',
+    name: 'Крутой Форсаж',
+    description: 'Усиленная версия бургера с более плотной начинкой.',
+    price: 399
+  },
+  {
+    id: 'burger-cheese',
+    category: 'burgers',
+    name: 'Сырный',
+    description: 'Бургер с акцентом на сыр и сливочный вкус.',
+    price: 349
+  },
+  {
+    id: 'hotdog-danish',
+    category: 'hotdogs',
+    name: 'Датский классический',
+    description: 'Булочка, гриль-сосиска, соусы, хрустящий лук.',
+    price: 230
+  },
+  {
+    id: 'hotdog-austrian',
+    category: 'hotdogs',
+    name: 'Австрийский',
+    description: 'Хот-дог с гриль-сосиской и фирменным сочетанием соусов.',
+    price: 230
+  },
+  {
+    id: 'hotdog-chili',
+    category: 'hotdogs',
+    name: 'Чили',
+    description: 'Острая гриль-сосиска, соусы, булочка.',
+    price: 260,
+    tags: ['острый']
+  },
+  {
+    id: 'hotdog-three-peppers',
+    category: 'hotdogs',
+    name: 'Три перца и сыр',
+    description: 'Хот-дог с сыром и ярким перечным вкусом.',
+    price: 270
+  },
+  {
+    id: 'quesadilla-cheese',
+    category: 'quesadilla',
+    name: 'Сырная кесадилья',
+    description: 'Тортилья с сырной начинкой и аппетитной обжаркой.',
+    price: 260
+  },
+  {
+    id: 'fryer-nuggets',
+    category: 'fryer',
+    name: 'Наггетсы',
+    description: 'Хрустящие куриные наггетсы.',
+    price: 170
+  },
+  {
+    id: 'fryer-cheese-sticks',
+    category: 'fryer',
+    name: 'Сырные палочки',
+    description: 'Сырные палочки в хрустящей панировке.',
+    price: 250
+  },
+  {
+    id: 'fryer-fries',
+    category: 'fryer',
+    name: 'Картофель фри 100 г',
+    description: 'Классический картофель фри.',
+    price: 150
+  },
+  {
+    id: 'fryer-country',
+    category: 'fryer',
+    name: 'Картофель по-деревенски 100 г',
+    description: 'Ароматный картофель дольками.',
+    price: 150
+  },
+  {
+    id: 'fryer-wings',
+    category: 'fryer',
+    name: 'Крылышки',
+    description: 'Куриные крылышки с аппетитной корочкой.',
+    price: 399
+  },
+  {
+    id: 'fryer-shrimps',
+    category: 'fryer',
+    name: 'Креветки',
+    description: 'Креветки в панировке.',
+    price: 300
+  },
+  {
+    id: 'fryer-strips-3',
+    category: 'fryer',
+    name: 'Стрипсы 3 шт',
+    description: 'Три куриных стрипса.',
+    price: 190
+  },
+  {
+    id: 'fryer-strips-6',
+    category: 'fryer',
+    name: 'Стрипсы 6 шт',
+    description: 'Шесть куриных стрипсов.',
+    price: 370
+  },
+  {
+    id: 'sauce-garlic',
+    category: 'sauces',
+    name: 'Соус чесночный 100 мл',
+    description: 'Чесночный соус.',
+    price: 60
+  },
+  {
+    id: 'sauce-ketchup',
+    category: 'sauces',
+    name: 'Кетчуп 30 мл',
+    description: 'Томатный соус.',
+    price: 45
+  },
+  {
+    id: 'sauce-cheese',
+    category: 'sauces',
+    name: 'Сырный соус 30 мл',
+    description: 'Сырный соус.',
+    price: 45
+  },
+  {
+    id: 'sauce-sweet-mustard',
+    category: 'sauces',
+    name: 'Сладкая горчица 30 мл',
+    description: 'Соус сладкая горчица.',
+    price: 45
+  },
+  {
+    id: 'drink-mors',
+    category: 'drinks',
+    name: 'Морс ягодный 0.35',
+    description: 'Ягодный морс.',
+    price: 100,
+    branchAvailability: ['konechnaya', 'airport']
+  },
+  {
+    id: 'drink-lemonade-cherry-yuzu',
+    category: 'drinks',
+    name: 'Лимонад вишня-юдзу',
+    description: 'Лимонад. Скоро в меню.',
+    price: 170,
+    comingSoon: true,
+    branchAvailability: ['konechnaya', 'airport']
+  },
+  {
+    id: 'drink-lemonade-mango',
+    category: 'drinks',
+    name: 'Лимонад манго-маракуйя',
+    description: 'Лимонад. Скоро в меню.',
+    price: 170,
+    comingSoon: true,
+    branchAvailability: ['konechnaya', 'airport']
+  },
+  {
+    id: 'drink-lemonade-watermelon',
+    category: 'drinks',
+    name: 'Лимонад арбуз-базилик',
+    description: 'Лимонад. Скоро в меню.',
+    price: 170,
+    comingSoon: true,
+    branchAvailability: ['konechnaya', 'airport']
+  },
+  {
+    id: 'coffee-espresso',
+    category: 'coffee',
+    name: 'Эспрессо 60 мл',
+    description: 'Классический эспрессо.',
+    price: 100,
+    branchAvailability: ['konechnaya']
+  },
+  {
+    id: 'coffee-double-espresso',
+    category: 'coffee',
+    name: 'Двойной эспрессо 120 мл',
+    description: 'Двойной эспрессо.',
+    price: 120,
+    branchAvailability: ['konechnaya']
+  },
+  {
+    id: 'coffee-cappuccino',
+    category: 'coffee',
+    name: 'Капучино 300 мл',
+    description: 'Классический капучино.',
+    price: 210,
+    branchAvailability: ['konechnaya']
+  },
+  {
+    id: 'coffee-latte',
+    category: 'coffee',
+    name: 'Латте 300 мл',
+    description: 'Мягкий кофе с молоком.',
+    price: 200,
+    branchAvailability: ['konechnaya']
+  },
+  {
+    id: 'coffee-americano',
+    category: 'coffee',
+    name: 'Американо 300 мл',
+    description: 'Американо.',
+    price: 190,
+    branchAvailability: ['konechnaya']
+  },
+  {
+    id: 'dessert-sladkiy-skaylayn',
+    category: 'desserts',
+    name: 'Сладкий скайлайн',
+    description: 'Сладкая десертная шаурма: хрустящий лаваш, киви, банан, клубничный джем и крем-чиз.',
+    price: 260,
+    tags: ['десерт']
+  }
+];
