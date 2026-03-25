@@ -1,19 +1,13 @@
-Готовая сборка под замену.
+Что уже исправлено в этом архиве:
+- app/api/orders/route.js: серверное создание заказа
+- app/order/page.js: исправлен build Vercel (Suspense для useSearchParams)
+- app/page.js: stop_list теперь читается через menu_item_id
+- lib/serverSupabase.js: серверный клиент Supabase
 
-Что уже включено:
-- рабочая кнопка "В корзину"
-- корзина на главной странице
-- оформление заказа через /api/orders
-- запись в Supabase
-- страница отслеживания заказа
-- админка заказов со сменой статусов и составом заказа
-
-Проверь только .env.local:
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-
-После замены файлов:
-1. commit
-2. push
-3. redeploy на Vercel
+Что сделать:
+1. Заменить файлами содержимое проекта.
+2. Проверить .env.local:
+   NEXT_PUBLIC_SUPABASE_URL=...
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+   SUPABASE_SERVICE_ROLE_KEY=...
+3. Commit -> push -> redeploy.
