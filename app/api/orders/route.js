@@ -14,23 +14,54 @@ function makeShortNumber() {
   return `NV-${tail}`
 }
 
-function pickStopItemId(row) {
-  return row?.item_id ?? row?.menu_item_id ?? null
+async function loadStopRows(supabase, branchId) {
+  const variants = [
+    'menu_item_id, is_stopped, branch_id',
+    'menu_item_id, is_stopped',
+    'menu_item_id',
+  ]
+
+  let lastError = null
+
+  for (const select of variants) {
+    const result = await supabase
+      .from('stop_list')
+      .select(select)
+      .eq('branch_id', branchId)
+
+    if (!result.error) {
+      return result.data || []
+    }
+
+    lastError = result.error
+  }
+
+  throw lastError || new Error('Не удалось проверить стоп-лист')
 }
 
-function isStopped(row) {
+function rowMeansStopped(row) {
   if (typeof row?.is_stopped === 'boolean') return row.is_stopped
   return true
+}
+
+function pickStopItemId(row) {
+  return row?.menu_item_id ?? null
 }
 
 async function tryInsertOrder(supabase, payloads) {
   let lastError = null
 
   for (const payload of payloads) {
-    const { data, error } = await supabase.from('orders').insert(payload).select('*').single()
+    const { data, error } = await supabase
+      .from('orders')
+      .insert(payload)
+      .select('*')
+      .single()
+
     if (!error && data) {
       return { data, payload }
     }
+
     lastError = error
   }
 
@@ -42,7 +73,7 @@ async function tryInsertOrderItems(supabase, rowsVariants) {
 
   for (const rows of rowsVariants) {
     const { error } = await supabase.from('order_items').insert(rows)
-    if (!error) return { ok: true }
+    if (!error) return
     lastError = error
   }
 
@@ -78,40 +109,46 @@ export async function POST(request) {
 
     const uniqueIds = [...new Set(cartItems.map((item) => item?.id).filter(Boolean))]
 
-    const [{ data: menuData, error: menuError }, { data: stopRows, error: stopError }] = await Promise.all([
-      supabase
-        .from('menu_items')
-        .select('id, name, price, category, description')
-        .in('id', uniqueIds),
-      supabase
-        .from('stop_list')
-        .select('item_id, menu_item_id, is_stopped, branch_id')
-        .eq('branch_id', branchId),
-    ])
+    const { data: menuData, error: menuError } = await supabase
+      .from('menu_items')
+      .select('id, name, price, category, description')
+      .in('id', uniqueIds)
 
     if (menuError) {
       return NextResponse.json({ error: 'Не удалось проверить меню' }, { status: 500 })
     }
 
-    if (stopError) {
+    let stopRows = []
+    try {
+      stopRows = await loadStopRows(supabase, branchId)
+    } catch {
       return NextResponse.json({ error: 'Не удалось проверить стоп-лист' }, { status: 500 })
     }
 
     const menuById = new Map((menuData || []).map((item) => [item.id, item]))
-    const stoppedIds = new Set((stopRows || []).filter(isStopped).map(pickStopItemId).filter(Boolean))
+    const stoppedIds = new Set(
+      (stopRows || []).filter(rowMeansStopped).map(pickStopItemId).filter(Boolean)
+    )
 
     const normalizedItems = []
+
     for (const rawItem of cartItems) {
       const itemId = rawItem?.id
       const quantity = Number(rawItem?.quantity || 0)
       const menuItem = menuById.get(itemId)
 
       if (!menuItem) {
-        return NextResponse.json({ error: 'Одна из позиций больше недоступна в меню' }, { status: 400 })
+        return NextResponse.json(
+          { error: 'Одна из позиций больше недоступна в меню' },
+          { status: 400 }
+        )
       }
 
       if (stoppedIds.has(itemId)) {
-        return NextResponse.json({ error: `Позиция «${menuItem.name}» сейчас на стопе` }, { status: 400 })
+        return NextResponse.json(
+          { error: `Позиция «${menuItem.name}» сейчас на стопе` },
+          { status: 400 }
+        )
       }
 
       if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -119,8 +156,12 @@ export async function POST(request) {
       }
 
       const price = Number(menuItem.price || 0)
+
       if (!price || price <= 0) {
-        return NextResponse.json({ error: `Позиция «${menuItem.name}» сейчас недоступна для заказа` }, { status: 400 })
+        return NextResponse.json(
+          { error: `Позиция «${menuItem.name}» сейчас недоступна для заказа` },
+          { status: 400 }
+        )
       }
 
       normalizedItems.push({
@@ -169,6 +210,14 @@ export async function POST(request) {
       normalizedItems.map((item) => ({
         order_id: insertedOrder.id,
         item_id: item.id,
+        item_name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        line_total: item.lineTotal,
+      })),
+      normalizedItems.map((item) => ({
+        order_id: insertedOrder.id,
+        menu_item_id: item.id,
         item_name: item.name,
         price: item.price,
         quantity: item.quantity,
