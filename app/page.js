@@ -2,7 +2,33 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { BRANCHES, CATEGORY_LABELS, FALLBACK_MENU } from '@/lib/menuFallback'
+
+const BRANCHES = [
+  { id: 'airport', name: 'На Виражах — Аэропорт' },
+  { id: 'konechnaya', name: 'На Виражах — Конечная' },
+]
+
+const CATEGORY_LABELS = {
+  shawarma: 'Шаурма',
+  burgers: 'Бургеры',
+  hotdogs: 'Хот-доги',
+  shashlik: 'Шашлык',
+  quesadilla: 'Кесадилья',
+  fryer: 'Фритюр',
+  sauces: 'Соусы',
+  drinks: 'Напитки',
+}
+
+const CATEGORY_ORDER = [
+  'shawarma',
+  'burgers',
+  'hotdogs',
+  'shashlik',
+  'quesadilla',
+  'fryer',
+  'sauces',
+  'drinks',
+]
 
 const cardStyle = {
   background: 'linear-gradient(180deg, #0b1b45 0%, #081531 100%)',
@@ -13,6 +39,8 @@ const cardStyle = {
 }
 
 function ProductCard({ item }) {
+  const isComingSoon = Number(item.price) <= 0
+
   return (
     <div
       style={{
@@ -57,13 +85,13 @@ function ProductCard({ item }) {
 
           <div
             style={{
-              color: '#ffb347',
+              color: isComingSoon ? '#9bb0e5' : '#ffb347',
               fontWeight: 800,
               fontSize: 22,
               whiteSpace: 'nowrap',
             }}
           >
-            {item.price} ₽
+            {isComingSoon ? '—' : `${item.price} ₽`}
           </div>
         </div>
 
@@ -84,6 +112,7 @@ function ProductCard({ item }) {
             display: 'flex',
             gap: 8,
             flexWrap: 'wrap',
+            alignItems: 'center',
           }}
         >
           <span
@@ -98,16 +127,32 @@ function ProductCard({ item }) {
             {CATEGORY_LABELS[item.category] || item.category}
           </span>
 
+          {isComingSoon ? (
+            <span
+              style={{
+                fontSize: 12,
+                padding: '6px 10px',
+                borderRadius: 999,
+                background: 'rgba(155,176,229,0.15)',
+                color: '#9bb0e5',
+              }}
+            >
+              Скоро в продаже
+            </span>
+          ) : null}
+
           <button
+            disabled={isComingSoon}
             style={{
               marginLeft: 'auto',
               border: 0,
               borderRadius: 12,
-              background: '#22c55e',
+              background: isComingSoon ? '#475569' : '#22c55e',
               color: '#071432',
               fontWeight: 700,
               padding: '10px 14px',
-              cursor: 'pointer',
+              cursor: isComingSoon ? 'not-allowed' : 'pointer',
+              opacity: isComingSoon ? 0.6 : 1,
             }}
           >
             В корзину
@@ -151,95 +196,100 @@ function AccordionSection({ title, items, open, onToggle }) {
 }
 
 export default function Page() {
-  const [items, setItems] = useState([])
   const [branch, setBranch] = useState('airport')
+  const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
+  const [errorText, setErrorText] = useState('')
   const [openMap, setOpenMap] = useState({
     shawarma: true,
     burgers: true,
     hotdogs: true,
     shashlik: false,
     quesadilla: false,
-    fryer: false,
+    fryer: true,
     sauces: false,
     drinks: false,
   })
 
   useEffect(() => {
-    let mounted = true
+    let active = true
 
-    async function load() {
+    async function loadMenu() {
       setLoading(true)
+      setErrorText('')
 
       if (!supabase) {
-        if (mounted) {
-          setItems(FALLBACK_MENU)
-          setLoading(false)
-        }
+        if (!active) return
+        setItems([])
+        setErrorText('Supabase не подключен')
+        setLoading(false)
         return
       }
 
-      const { data: menu, error: menuError } = await supabase
+      const { data: menuData, error: menuError } = await supabase
         .from('menu_items')
         .select('*')
+        .order('name', { ascending: true })
 
-      if (!mounted) return
+      if (!active) return
 
-      if (menuError || !menu || menu.length === 0) {
-        setItems(FALLBACK_MENU)
+      if (menuError) {
+        setItems([])
+        setErrorText('Не удалось загрузить меню')
         setLoading(false)
         return
       }
 
-      const { data: stops, error: stopError } = await supabase
+      const { data: stopData, error: stopError } = await supabase
         .from('stop_list')
-        .select('*')
+        .select('menu_item_id, is_stopped')
         .eq('branch_id', branch)
 
-      if (!mounted) return
+      if (!active) return
 
       if (stopError) {
-        setItems(menu)
+        setItems(menuData || [])
+        setErrorText('')
         setLoading(false)
         return
       }
 
-      const stoppedIds = (stops || [])
-        .filter((row) => row.is_stopped)
-        .map((row) => row.menu_item_id)
+      const stoppedIds = new Set(
+        (stopData || [])
+          .filter((row) => row.is_stopped)
+          .map((row) => row.menu_item_id)
+      )
 
-      const filtered = menu.filter((item) => !stoppedIds.includes(item.id))
+      const filteredMenu = (menuData || []).filter(
+        (item) => !stoppedIds.has(item.id)
+      )
 
-      setItems(filtered)
+      setItems(filteredMenu)
       setLoading(false)
     }
 
-    load()
+    loadMenu()
 
     return () => {
-      mounted = false
+      active = false
     }
   }, [branch])
 
-  const grouped = useMemo(() => {
-    return items.reduce((acc, item) => {
-      const key = item.category || 'other'
-      if (!acc[key]) acc[key] = []
+  const groupedItems = useMemo(() => {
+    const grouped = {}
 
-      const branchIds = item.branch_ids || null
+    for (const category of CATEGORY_ORDER) {
+      grouped[category] = []
+    }
 
-      if (
-        !branchIds ||
-        !Array.isArray(branchIds) ||
-        branchIds.length === 0 ||
-        branchIds.includes(branch)
-      ) {
-        acc[key].push(item)
-      }
+    for (const item of items) {
+      const category = item.category || 'other'
+      if (!grouped[category]) grouped[category] = []
+      grouped[category].push(item)
+    }
 
-      return acc
-    }, {})
-  }, [items, branch])
+    return grouped
+  }, [items])
 
   return (
     <main style={{ maxWidth: 980, margin: '0 auto', padding: '18px 14px 48px' }}>
@@ -256,7 +306,7 @@ export default function Page() {
         </div>
 
         <div style={{ color: '#cdd9fb', marginBottom: 14 }}>
-          Витрина меню с категориями, карточками и фильтрацией по стоп-листу.
+          Полное меню с фильтрацией по стоп-листу для выбранной точки.
         </div>
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -310,26 +360,37 @@ export default function Page() {
       </div>
 
       {loading ? (
-        <div style={{ color: '#cdd9fb', padding: '8px 4px 18px' }}>Загрузка меню...</div>
+        <div style={{ color: '#cdd9fb', padding: '8px 4px 18px' }}>
+          Загрузка меню...
+        </div>
+      ) : null}
+
+      {!loading && errorText ? (
+        <div style={{ color: '#ffb4b4', padding: '8px 4px 18px' }}>
+          {errorText}
+        </div>
       ) : null}
 
       {!loading &&
-        Object.entries(CATEGORY_LABELS).map(([key, label]) =>
-          grouped[key]?.length ? (
+        CATEGORY_ORDER.map((categoryKey) => {
+          const categoryItems = groupedItems[categoryKey] || []
+          if (!categoryItems.length) return null
+
+          return (
             <AccordionSection
-              key={key}
-              title={label}
-              items={grouped[key]}
-              open={!!openMap[key]}
+              key={categoryKey}
+              title={CATEGORY_LABELS[categoryKey] || categoryKey}
+              items={categoryItems}
+              open={!!openMap[categoryKey]}
               onToggle={() =>
                 setOpenMap((prev) => ({
                   ...prev,
-                  [key]: !prev[key],
+                  [categoryKey]: !prev[categoryKey],
                 }))
               }
             />
-          ) : null
-        )}
+          )
+        })}
     </main>
   )
 }
