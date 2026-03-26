@@ -1,0 +1,18 @@
+Что обновлено:
+- app/page.js
+  - ветки работают по text id
+  - stop_list читается по menu_item_id/is_stopped
+  - menu_items фильтруется по branch_ids
+  - категория fries поддерживается нормально
+  - добавлены апсейлы/рекомендации после добавления товара
+  - для шаурмы рекомендации сразу открываются и не предлагают позиции с противоположным variant
+- app/api/orders/route.js
+  - branch_id и item_id работают как text
+  - stop_list и branch_ids валидируются на сервере
+- app/order/page.js
+  - показывает нормальное название точки из branches
+  - показывает состав заказа
+  - понимает short_number, order_number и id
+- app/admin/page.js
+  - показывает названия точек из branches
+  - показывает состав заказа

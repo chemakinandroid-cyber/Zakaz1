@@ -13,6 +13,7 @@ const CATEGORY_LABELS = {
   hotdogs: 'Хот-доги',
   shashlik: 'Шашлык',
   quesadilla: 'Кесадилья',
+  fries: 'Фритюр',
   fryer: 'Фритюр',
   sauces: 'Соусы',
   drinks: 'Напитки',
@@ -24,10 +25,12 @@ const CATEGORY_ORDER = [
   'hotdogs',
   'shashlik',
   'quesadilla',
-  'fryer',
+  'fries',
   'sauces',
   'drinks',
 ]
+
+const CART_STORAGE_KEY = 'navirazhah_cart_v2'
 
 const cardStyle = {
   background: 'linear-gradient(180deg, #0b1b45 0%, #081531 100%)',
@@ -37,14 +40,62 @@ const cardStyle = {
   boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
 }
 
-const CART_STORAGE_KEY = 'navirazhah_cart_v2'
-
 function formatPrice(value) {
   return `${Number(value || 0)} ₽`
 }
 
+function normalizeCategory(category) {
+  return category === 'fryer' ? 'fries' : category
+}
+
+function matchesBranch(item, branchId) {
+  if (!Array.isArray(item?.branch_ids) || item.branch_ids.length === 0) return true
+  return item.branch_ids.includes(branchId)
+}
+
+function buildSuggestions(sourceItem, allItems, cartIds) {
+  const normalizedSourceCategory = normalizeCategory(sourceItem.category)
+  const sourceVariant = sourceItem.variant || null
+
+  let allowedCategories = []
+  if (normalizedSourceCategory === 'shawarma') {
+    allowedCategories = ['fries', 'sauces', 'drinks']
+  } else if (normalizedSourceCategory === 'burgers' || normalizedSourceCategory === 'hotdogs') {
+    allowedCategories = ['fries', 'sauces', 'drinks']
+  } else if (normalizedSourceCategory === 'fries') {
+    allowedCategories = ['sauces', 'drinks']
+  } else {
+    allowedCategories = ['drinks', 'sauces']
+  }
+
+  const suggestions = allItems.filter((item) => {
+    if (item.id === sourceItem.id) return false
+    if (cartIds.has(item.id)) return false
+    if (Number(item.price) <= 0) return false
+
+    const normalizedItemCategory = normalizeCategory(item.category)
+    if (!allowedCategories.includes(normalizedItemCategory)) return false
+
+    if (sourceVariant === 'chicken' && item.variant === 'pork') return false
+    if (sourceVariant === 'pork' && item.variant === 'chicken') return false
+
+    return true
+  })
+
+  const categoryPriority = { fries: 1, sauces: 2, drinks: 3 }
+
+  return suggestions
+    .sort((a, b) => {
+      const ca = categoryPriority[normalizeCategory(a.category)] || 99
+      const cb = categoryPriority[normalizeCategory(b.category)] || 99
+      if (ca !== cb) return ca - cb
+      return Number(a.price || 0) - Number(b.price || 0)
+    })
+    .slice(0, 6)
+}
+
 function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
-  const isComingSoon = Number(item.price) <= 0
+  const isComingSoon = Boolean(item.coming_soon) || Number(item.price) <= 0
   const inCart = quantity > 0
 
   return (
@@ -130,8 +181,22 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
               color: '#ffd08a',
             }}
           >
-            {CATEGORY_LABELS[item.category] || item.category}
+            {CATEGORY_LABELS[normalizeCategory(item.category)] || item.category}
           </span>
+
+          {item.variant ? (
+            <span
+              style={{
+                fontSize: 12,
+                padding: '6px 10px',
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.08)',
+                color: '#d9e4ff',
+              }}
+            >
+              {item.variant === 'chicken' ? 'Курица' : item.variant === 'pork' ? 'Свинина' : item.variant}
+            </span>
+          ) : null}
 
           {isComingSoon ? (
             <span
@@ -273,6 +338,9 @@ export default function Page() {
   const [errorText, setErrorText] = useState('')
   const [cart, setCart] = useState([])
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false)
+  const [suggestionsSource, setSuggestionsSource] = useState(null)
+  const [suggestions, setSuggestions] = useState([])
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [comment, setComment] = useState('')
@@ -284,7 +352,7 @@ export default function Page() {
     hotdogs: true,
     shashlik: false,
     quesadilla: false,
-    fryer: true,
+    fries: true,
     sauces: false,
     drinks: false,
   })
@@ -361,19 +429,23 @@ export default function Page() {
 
       if (!active) return
 
-      if (stopError) {
-        setItems(menuData || [])
-        setLoading(false)
-        return
-      }
-
       const stoppedIds = new Set(
         (stopData || [])
           .filter((row) => row.is_stopped)
           .map((row) => row.menu_item_id)
       )
 
-      const filteredMenu = (menuData || []).filter((item) => !stoppedIds.has(item.id))
+      if (stopError) {
+        console.error(stopError)
+      }
+
+      const filteredMenu = (menuData || [])
+        .filter((item) => matchesBranch(item, branch))
+        .filter((item) => !stoppedIds.has(item.id))
+        .map((item) => ({
+          ...item,
+          category: normalizeCategory(item.category),
+        }))
 
       setItems(filteredMenu)
       setLoading(false)
@@ -399,7 +471,7 @@ export default function Page() {
     }
 
     for (const item of items) {
-      const category = item.category || 'other'
+      const category = normalizeCategory(item.category || 'other')
       if (!grouped[category]) grouped[category] = []
       grouped[category].push(item)
     }
@@ -436,16 +508,34 @@ export default function Page() {
     return cart.find((item) => item.id === itemId)?.quantity || 0
   }
 
-  function addToCart(item) {
+  function openSuggestionsFor(item, nextCart) {
+    const cartIds = new Set(nextCart.map((x) => x.id))
+    const nextSuggestions = buildSuggestions(item, items, cartIds)
+    if (!nextSuggestions.length) return
+    setSuggestionsSource(item)
+    setSuggestions(nextSuggestions)
+    setSuggestionsOpen(true)
+  }
+
+  function addToCart(item, options = { openSuggestions: true }) {
+    let nextCart = []
     setCart((prev) => {
       const existing = prev.find((entry) => entry.id === item.id)
       if (existing) {
-        return prev.map((entry) =>
+        nextCart = prev.map((entry) =>
           entry.id === item.id ? { ...entry, quantity: entry.quantity + 1 } : entry
         )
+      } else {
+        nextCart = [...prev, { id: item.id, quantity: 1 }]
       }
-      return [...prev, { id: item.id, quantity: 1 }]
+      return nextCart
     })
+
+    if (options.openSuggestions) {
+      setTimeout(() => {
+        openSuggestionsFor(item, nextCart.length ? nextCart : [...cart, { id: item.id, quantity: 1 }])
+      }, 0)
+    }
   }
 
   function increaseQuantity(itemId) {
@@ -508,6 +598,7 @@ export default function Page() {
 
       setCart([])
       setCheckoutOpen(false)
+      setSuggestionsOpen(false)
       setCustomerName('')
       setCustomerPhone('')
       setComment('')
@@ -519,10 +610,10 @@ export default function Page() {
       } catch {}
 
       const orderNumber =
-        result?.shortNumber ??
         result?.short_number ??
         result?.order?.short_number ??
-        result?.order?.order_number
+        result?.order?.order_number ??
+        result?.order?.id
 
       if (orderNumber) {
         window.location.href = `/order?number=${encodeURIComponent(orderNumber)}`
@@ -667,6 +758,126 @@ export default function Page() {
             >
               Оформить заказ
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {suggestionsOpen ? (
+        <div
+          onClick={() => setSuggestionsOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            zIndex: 65,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            padding: 12,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 820,
+              maxHeight: '85vh',
+              overflow: 'auto',
+              background: '#081531',
+              borderRadius: 22,
+              border: '1px solid rgba(255,255,255,0.08)',
+              padding: 18,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 900 }}>Добавить к заказу</div>
+                <div style={{ color: '#c4d1f6', marginTop: 6 }}>
+                  {suggestionsSource?.category === 'shawarma'
+                    ? 'Для шаурмы сразу показываем подходящие добавки и апсейлы.'
+                    : 'Подходящие дополнения к выбранной позиции.'}
+                </div>
+              </div>
+              <button
+                onClick={() => setSuggestionsOpen(false)}
+                style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+              {suggestions.map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    alignItems: 'center',
+                    padding: '12px 14px',
+                    borderRadius: 14,
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 800 }}>{item.name}</div>
+                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>
+                      {(CATEGORY_LABELS[item.category] || item.category)} · {formatPrice(item.price)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => addToCart(item, { openSuggestions: false })}
+                    style={{
+                      border: 0,
+                      borderRadius: 12,
+                      background: '#22c55e',
+                      color: '#071432',
+                      fontWeight: 900,
+                      padding: '10px 14px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Добавить
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setSuggestionsOpen(false)}
+                style={{
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: 14,
+                  background: 'transparent',
+                  color: '#fff',
+                  fontWeight: 700,
+                  padding: '12px 16px',
+                  cursor: 'pointer',
+                }}
+              >
+                Продолжить без добавок
+              </button>
+              <button
+                onClick={() => {
+                  setSuggestionsOpen(false)
+                  setCheckoutOpen(true)
+                }}
+                style={{
+                  border: 0,
+                  borderRadius: 14,
+                  background: '#f4a01d',
+                  color: '#111',
+                  fontWeight: 900,
+                  padding: '12px 16px',
+                  cursor: 'pointer',
+                }}
+              >
+                Перейти к оформлению
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
