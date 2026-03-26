@@ -15,6 +15,51 @@ const LABELS = {
   expired: 'Истёк',
 }
 
+function buildSearchCandidates(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return []
+
+  const compact = raw.replace(/\s+/g, '')
+  const noLeadingZeros = compact.replace(/^0+(\d+)$/, '$1')
+
+  return [...new Set([raw, compact, noLeadingZeros].filter(Boolean))]
+}
+
+async function findOrder(searchNumber) {
+  const candidates = buildSearchCandidates(searchNumber)
+
+  for (const candidate of candidates) {
+    const byShort = await supabase
+      .from('orders')
+      .select('*')
+      .eq('short_number', candidate)
+      .maybeSingle()
+
+    if (byShort.data) return { data: byShort.data, error: null }
+    if (byShort.error) return { data: null, error: byShort.error }
+
+    const byOrderNumber = await supabase
+      .from('orders')
+      .select('*')
+      .eq('order_number', candidate)
+      .maybeSingle()
+
+    if (byOrderNumber.data) return { data: byOrderNumber.data, error: null }
+    if (byOrderNumber.error) return { data: null, error: byOrderNumber.error }
+
+    const byId = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', candidate)
+      .maybeSingle()
+
+    if (byId.data) return { data: byId.data, error: null }
+    if (byId.error) return { data: null, error: byId.error }
+  }
+
+  return { data: null, error: null }
+}
+
 function OrderPageInner() {
   const searchParams = useSearchParams()
   const [number, setNumber] = useState('')
@@ -43,37 +88,7 @@ function OrderPageInner() {
 
     setLoading(true)
 
-    let orderData = null
-    let orderError = null
-
-    const byShort = await supabase
-      .from('orders')
-      .select('*')
-      .eq('short_number', searchNumber)
-      .maybeSingle()
-
-    orderData = byShort.data
-    orderError = byShort.error
-
-    if (!orderData && !orderError) {
-      const byOrderNumber = await supabase
-        .from('orders')
-        .select('*')
-        .eq('order_number', searchNumber)
-        .maybeSingle()
-      orderData = byOrderNumber.data
-      orderError = byOrderNumber.error
-    }
-
-    if (!orderData && !orderError) {
-      const byId = await supabase
-        .from('orders')
-        .select('*')
-        .eq('id', searchNumber)
-        .maybeSingle()
-      orderData = byId.data
-      orderError = byId.error
-    }
+    const { data: orderData, error: orderError } = await findOrder(searchNumber)
 
     if (orderError || !orderData) {
       setLoading(false)
