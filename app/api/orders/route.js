@@ -1,4 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
+import { FALLBACK_MENU } from '@/lib/menuFallback'
+
+function normalizeItems(dbItems) {
+  const map = new Map()
+  for (const item of [...(dbItems || []), ...FALLBACK_MENU]) {
+    if (!map.has(item.id)) map.set(item.id, item)
+  }
+  return Array.from(map.values())
+}
 
 export async function POST(req) {
   try {
@@ -27,6 +36,8 @@ export async function POST(req) {
       return Response.json({ error: `Ошибка загрузки меню: ${menuError.message}` }, { status: 500 })
     }
 
+    const catalog = normalizeItems(menuItems)
+
     const { data: stopList, error: stopError } = await supabase
       .from('stop_list')
       .select('menu_item_id, is_stopped')
@@ -45,7 +56,7 @@ export async function POST(req) {
     let total = 0
 
     const items = body.items.map((i) => {
-      const menu = menuItems.find((m) => m.id === i.id)
+      const menu = catalog.find((m) => m.id === i.id)
 
       if (!menu) throw new Error('Товар не найден')
 
