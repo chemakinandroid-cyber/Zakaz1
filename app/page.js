@@ -3,24 +3,20 @@
 import { useEffect, useMemo, useState } from 'react'
 
 const BRANCHES = [
-  {
-    id: 'nv-fr-002',
-    name: 'На Виражах — Аэропорт',
-    shortName: 'Аэропорт',
-    callLabel: 'Аэропорт, 7',
-    phone: '+79024524222',
-  },
-  {
-    id: 'nv-sh-001',
-    name: 'На Виражах — Конечная',
-    shortName: 'Конечная',
-    callLabel: 'Конечная',
-    phone: '+79085932688',
-  },
+  { id: 'nv-fr-002', name: 'На Виражах — Аэропорт' },
+  { id: 'nv-sh-001', name: 'На Виражах — Конечная' },
+  { id: '1', name: 'На Виражах — Аэропорт' },
 ]
+
+const BRANCH_PHONES = {
+  'nv-fr-002': '+79024524222',
+  '1': '+79024524222',
+  'nv-sh-001': '+79085932688',
+}
 
 const CATEGORY_LABELS = {
   shawarma: 'Шаурма',
+  shawarma_addons: 'Добавки к шаурме',
   burgers: 'Бургеры',
   hotdogs: 'Хот-доги',
   shashlik: 'Шашлык',
@@ -33,6 +29,7 @@ const CATEGORY_LABELS = {
 
 const CATEGORY_ORDER = [
   'shawarma',
+  'shawarma_addons',
   'burgers',
   'hotdogs',
   'shashlik',
@@ -42,7 +39,7 @@ const CATEGORY_ORDER = [
   'drinks',
 ]
 
-const CART_STORAGE_KEY = 'navirazhah_cart_v2'
+const CART_STORAGE_KEY = 'navirazhah_cart_v3'
 
 const cardStyle = {
   background: 'linear-gradient(180deg, #0b1b45 0%, #081531 100%)',
@@ -56,8 +53,31 @@ function formatPrice(value) {
   return `${Number(value || 0)} ₽`
 }
 
+function formatShortNumber(value) {
+  const num = Number(String(value || '').replace(/\D/g, ''))
+  if (!Number.isFinite(num) || num <= 0) return '0001'
+  return String(num).padStart(4, '0')
+}
+
 function normalizeCategory(category) {
-  return category === 'fryer' ? 'fries' : category
+  const raw = String(category || '').trim().toLowerCase()
+  if (!raw) return 'other'
+  if (raw === 'fryer') return 'fries'
+  if (raw.includes('добав') && raw.includes('шаур')) return 'shawarma_addons'
+  if (raw.includes('shawarma') && raw.includes('addon')) return 'shawarma_addons'
+  return raw
+}
+
+function isShawarmaAddon(item) {
+  const category = normalizeCategory(item?.category)
+  const name = String(item?.name || '').toLowerCase()
+  const description = String(item?.description || '').toLowerCase()
+
+  return (
+    category === 'shawarma_addons' ||
+    (name.includes('добав') && name.includes('шаур')) ||
+    (description.includes('добав') && description.includes('шаур'))
+  )
 }
 
 function matchesBranch(item, branchId) {
@@ -69,24 +89,34 @@ function buildSuggestions(sourceItem, allItems, cartIds) {
   const normalizedSourceCategory = normalizeCategory(sourceItem.category)
   const sourceVariant = sourceItem.variant || null
 
-  let allowedCategories = []
+  let pool = []
+
   if (normalizedSourceCategory === 'shawarma') {
-    allowedCategories = ['fries', 'sauces', 'drinks']
-  } else if (normalizedSourceCategory === 'burgers' || normalizedSourceCategory === 'hotdogs') {
-    allowedCategories = ['fries', 'sauces', 'drinks']
-  } else if (normalizedSourceCategory === 'fries') {
-    allowedCategories = ['sauces', 'drinks']
+    pool = allItems.filter((item) => isShawarmaAddon(item))
+
+    if (!pool.length) {
+      pool = allItems.filter((item) => {
+        const normalizedItemCategory = normalizeCategory(item.category)
+        return ['fries', 'sauces', 'drinks'].includes(normalizedItemCategory)
+      })
+    }
   } else {
-    allowedCategories = ['drinks', 'sauces']
+    let allowedCategories = []
+    if (normalizedSourceCategory === 'burgers' || normalizedSourceCategory === 'hotdogs') {
+      allowedCategories = ['fries', 'sauces', 'drinks']
+    } else if (normalizedSourceCategory === 'fries') {
+      allowedCategories = ['sauces', 'drinks']
+    } else {
+      allowedCategories = ['drinks', 'sauces']
+    }
+
+    pool = allItems.filter((item) => allowedCategories.includes(normalizeCategory(item.category)))
   }
 
-  const suggestions = allItems.filter((item) => {
+  const suggestions = pool.filter((item) => {
     if (item.id === sourceItem.id) return false
     if (cartIds.has(item.id)) return false
     if (Number(item.price) <= 0) return false
-
-    const normalizedItemCategory = normalizeCategory(item.category)
-    if (!allowedCategories.includes(normalizedItemCategory)) return false
 
     if (sourceVariant === 'chicken' && item.variant === 'pork') return false
     if (sourceVariant === 'pork' && item.variant === 'chicken') return false
@@ -94,7 +124,7 @@ function buildSuggestions(sourceItem, allItems, cartIds) {
     return true
   })
 
-  const categoryPriority = { fries: 1, sauces: 2, drinks: 3 }
+  const categoryPriority = { shawarma_addons: 1, fries: 2, sauces: 3, drinks: 4 }
 
   return suggestions
     .sort((a, b) => {
@@ -148,9 +178,7 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
             alignItems: 'flex-start',
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: 19, lineHeight: 1.2 }}>
-            {item.name}
-          </div>
+          <div style={{ fontWeight: 700, fontSize: 19, lineHeight: 1.2 }}>{item.name}</div>
 
           <div
             style={{
@@ -276,9 +304,7 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
                 >
                   −
                 </button>
-                <div style={{ minWidth: 20, textAlign: 'center', fontWeight: 800, fontSize: 18 }}>
-                  {quantity}
-                </div>
+                <div style={{ minWidth: 20, textAlign: 'center', fontWeight: 800, fontSize: 18 }}>{quantity}</div>
                 <button
                   onClick={() => onIncrease(item.id)}
                   style={{
@@ -358,8 +384,11 @@ export default function Page() {
   const [comment, setComment] = useState('')
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [previewOrderNumber, setPreviewOrderNumber] = useState('0001')
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [openMap, setOpenMap] = useState({
     shawarma: true,
+    shawarma_addons: true,
     burgers: true,
     hotdogs: true,
     shashlik: false,
@@ -381,21 +410,15 @@ export default function Page() {
 
       const rawSavedBranch = parsed?.branch
       const savedBranch = typeof rawSavedBranch === 'string' ? rawSavedBranch : BRANCHES[0].id
-
       if (BRANCHES.some((b) => b.id === savedBranch)) {
         setBranch(savedBranch)
-      } else {
-        setBranch(BRANCHES[0].id)
       }
     } catch {}
   }, [])
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(
-        CART_STORAGE_KEY,
-        JSON.stringify({ branch, items: cart })
-      )
+      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ branch, items: cart }))
     } catch {}
   }, [branch, cart])
 
@@ -420,13 +443,9 @@ export default function Page() {
 
       const supabase = createClient(url, key)
 
-      const { data: menuData, error: menuError } = await supabase
-        .from('menu_items')
-        .select('*')
-        .order('name', { ascending: true })
+      const { data: menuData, error: menuError } = await supabase.from('menu_items').select('*').order('name', { ascending: true })
 
       if (!active) return
-
       if (menuError) {
         setItems([])
         setErrorText('Не удалось загрузить меню')
@@ -441,30 +460,19 @@ export default function Page() {
 
       if (!active) return
 
-      const stoppedIds = new Set(
-        (stopData || [])
-          .filter((row) => row.is_stopped)
-          .map((row) => row.menu_item_id)
-      )
-
-      if (stopError) {
-        console.error(stopError)
-      }
+      const stoppedIds = new Set((stopData || []).filter((row) => row.is_stopped).map((row) => row.menu_item_id))
+      if (stopError) console.error(stopError)
 
       const filteredMenu = (menuData || [])
         .filter((item) => matchesBranch(item, branch))
         .filter((item) => !stoppedIds.has(item.id))
-        .map((item) => ({
-          ...item,
-          category: normalizeCategory(item.category),
-        }))
+        .map((item) => ({ ...item, category: normalizeCategory(item.category) }))
 
       setItems(filteredMenu)
       setLoading(false)
     }
 
     loadMenu()
-
     return () => {
       active = false
     }
@@ -475,71 +483,90 @@ export default function Page() {
     setCart((prev) => prev.filter((item) => availableIds.has(item.id)))
   }, [items])
 
-  const activeBranch = useMemo(() => BRANCHES.find((b) => b.id === branch) || BRANCHES[0], [branch])
-
   useEffect(() => {
+    if (!checkoutOpen) return
     let active = true
 
-    async function loadPredictedOrderNumber() {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    async function loadPreviewOrderNumber() {
+      setPreviewLoading(true)
+      try {
+        const { createClient } = await import('@supabase/supabase-js')
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        if (!url || !key) {
+          if (active) setPreviewOrderNumber('0001')
+          return
+        }
 
-      if (!url || !key) {
-        if (active) setPredictedOrderNumber('')
-        return
+        const supabase = createClient(url, key)
+        let nextNumber = null
+
+        const { data: counterRow } = await supabase
+          .from('order_counters')
+          .select('*')
+          .eq('branch_id', branch)
+          .limit(1)
+          .maybeSingle()
+
+        if (counterRow) {
+          const candidates = [
+            counterRow.current_number,
+            counterRow.current_value,
+            counterRow.last_number,
+            counterRow.counter,
+            counterRow.value,
+            counterRow.number,
+          ]
+          const numeric = candidates
+            .map((v) => Number(v))
+            .find((v) => Number.isFinite(v) && v >= 0)
+          if (Number.isFinite(numeric)) {
+            nextNumber = numeric + 1
+          }
+        }
+
+        if (!Number.isFinite(nextNumber)) {
+          const { data: ordersRows } = await supabase
+            .from('orders')
+            .select('short_number, created_at')
+            .eq('branch_id', branch)
+            .order('created_at', { ascending: false })
+            .limit(50)
+
+          const maxShort = (ordersRows || []).reduce((max, row) => {
+            const num = Number(String(row?.short_number || '').replace(/\D/g, ''))
+            return Number.isFinite(num) && num > max ? num : max
+          }, 0)
+
+          nextNumber = maxShort + 1
+        }
+
+        if (active) {
+          setPreviewOrderNumber(formatShortNumber(nextNumber || 1))
+        }
+      } catch {
+        if (active) setPreviewOrderNumber('0001')
+      } finally {
+        if (active) setPreviewLoading(false)
       }
-
-      const { createClient } = await import('@supabase/supabase-js')
-      const supabase = createClient(url, key)
-
-      const { data, error } = await supabase
-        .from('orders')
-        .select('short_number, created_at')
-        .eq('branch_id', branch)
-        .order('created_at', { ascending: false })
-        .limit(20)
-
-      if (!active) return
-
-      if (error || !Array.isArray(data) || data.length === 0) {
-        setPredictedOrderNumber('0001')
-        return
-      }
-
-      const maxNumber = data.reduce((max, row) => {
-        const raw = String(row?.short_number || '')
-        const digits = raw.replace(/\D/g, '')
-        const value = Number(digits || 0)
-        return value > max ? value : max
-      }, 0)
-
-      setPredictedOrderNumber(String(maxNumber + 1).padStart(4, '0'))
     }
 
-    loadPredictedOrderNumber()
-
+    loadPreviewOrderNumber()
     return () => {
       active = false
     }
-  }, [branch, checkoutOpen])
+  }, [checkoutOpen, branch])
 
   const groupedItems = useMemo(() => {
     const grouped = {}
-
-    for (const category of CATEGORY_ORDER) {
-      grouped[category] = []
-    }
-
+    for (const category of CATEGORY_ORDER) grouped[category] = []
     for (const item of items) {
       const category = normalizeCategory(item.category || 'other')
       if (!grouped[category]) grouped[category] = []
       grouped[category].push(item)
     }
-
     return grouped
   }, [items])
-
-  const [predictedOrderNumber, setPredictedOrderNumber] = useState('')
 
   const cartSummary = useMemo(() => {
     const byId = new Map(items.map((item) => [item.id, item]))
@@ -555,11 +582,7 @@ export default function Page() {
         const lineTotal = Number(source.price || 0) * quantity
         count += quantity
         total += lineTotal
-        return {
-          ...source,
-          quantity,
-          lineTotal,
-        }
+        return { ...source, quantity, lineTotal }
       })
       .filter(Boolean)
 
@@ -584,9 +607,7 @@ export default function Page() {
     setCart((prev) => {
       const existing = prev.find((entry) => entry.id === item.id)
       if (existing) {
-        nextCart = prev.map((entry) =>
-          entry.id === item.id ? { ...entry, quantity: entry.quantity + 1 } : entry
-        )
+        nextCart = prev.map((entry) => (entry.id === item.id ? { ...entry, quantity: entry.quantity + 1 } : entry))
       } else {
         nextCart = [...prev, { id: item.id, quantity: 1 }]
       }
@@ -601,43 +622,32 @@ export default function Page() {
   }
 
   function increaseQuantity(itemId) {
-    setCart((prev) =>
-      prev.map((entry) =>
-        entry.id === itemId ? { ...entry, quantity: entry.quantity + 1 } : entry
-      )
-    )
+    setCart((prev) => prev.map((entry) => (entry.id === itemId ? { ...entry, quantity: entry.quantity + 1 } : entry)))
   }
 
   function decreaseQuantity(itemId) {
     setCart((prev) =>
       prev
-        .map((entry) =>
-          entry.id === itemId ? { ...entry, quantity: entry.quantity - 1 } : entry
-        )
+        .map((entry) => (entry.id === itemId ? { ...entry, quantity: entry.quantity - 1 } : entry))
         .filter((entry) => entry.quantity > 0)
     )
   }
 
+  function removeFromCart(itemId) {
+    setCart((prev) => prev.filter((entry) => entry.id !== itemId))
+  }
+
+  function clearCart() {
+    setCart([])
+  }
+
   async function submitOrder() {
     setSubmitError('')
-
-    if (!cartSummary.items.length) {
-      setSubmitError('Корзина пуста')
-      return
-    }
-
-    if (!customerName.trim()) {
-      setSubmitError('Укажите имя')
-      return
-    }
-
-    if (!customerPhone.trim()) {
-      setSubmitError('Укажите телефон')
-      return
-    }
+    if (!cartSummary.items.length) return setSubmitError('Корзина пуста')
+    if (!customerName.trim()) return setSubmitError('Укажите имя')
+    if (!customerPhone.trim()) return setSubmitError('Укажите телефон')
 
     setSubmitting(true)
-
     try {
       const response = await fetch('/api/orders', {
         method: 'POST',
@@ -652,7 +662,6 @@ export default function Page() {
       })
 
       const result = await response.json()
-
       if (!response.ok) {
         setSubmitError(result?.error || 'Не удалось оформить заказ')
         return
@@ -664,24 +673,16 @@ export default function Page() {
       setCustomerName('')
       setCustomerPhone('')
       setComment('')
+      setPreviewOrderNumber('0001')
       try {
-        window.localStorage.setItem(
-          CART_STORAGE_KEY,
-          JSON.stringify({ branch, items: [] })
-        )
+        window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ branch, items: [] }))
       } catch {}
 
-      const orderNumber =
-        result?.short_number ??
-        result?.order?.short_number ??
-        result?.order?.order_number ??
-        result?.order?.id
-
+      const orderNumber = result?.short_number ?? result?.order?.short_number ?? result?.order?.order_number ?? result?.order?.id
       if (orderNumber) {
         window.location.href = `/order?number=${encodeURIComponent(orderNumber)}`
         return
       }
-
       window.location.href = '/order'
     } catch {
       setSubmitError('Не удалось оформить заказ')
@@ -689,6 +690,10 @@ export default function Page() {
       setSubmitting(false)
     }
   }
+
+  const branchLabel = BRANCHES.find((b) => b.id === branch)?.name || branch
+  const branchPhone = BRANCH_PHONES[branch]
+  const shortBranchLabel = branchLabel.replace('На Виражах — ', '')
 
   return (
     <main style={{ maxWidth: 980, margin: '0 auto', padding: '18px 14px 120px' }}>
@@ -701,25 +706,16 @@ export default function Page() {
         }}
       >
         <div style={{ fontSize: 30, fontWeight: 900, marginBottom: 8 }}>На Виражах</div>
-
-        <div style={{ color: '#cdd9fb', marginBottom: 14 }}>
-          Полное меню с фильтрацией по стоп-листу для выбранной точки.
-        </div>
+        <div style={{ color: '#cdd9fb', marginBottom: 14 }}>Полное меню с фильтрацией по стоп-листу для выбранной точки.</div>
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {BRANCHES.map((b) => (
+          {BRANCHES.filter((b, idx, arr) => arr.findIndex((x) => x.id === b.id) === idx).map((b) => (
             <button
               key={b.id}
               onClick={() => setBranch(b.id)}
               style={{
-                border:
-                  branch === b.id
-                    ? '1px solid #f4a01d'
-                    : '1px solid rgba(255,255,255,0.1)',
-                background:
-                  branch === b.id
-                    ? 'rgba(244,160,29,0.16)'
-                    : 'rgba(255,255,255,0.03)',
+                border: branch === b.id ? '1px solid #f4a01d' : '1px solid rgba(255,255,255,0.1)',
+                background: branch === b.id ? 'rgba(244,160,29,0.16)' : 'rgba(255,255,255,0.03)',
                 color: '#fff',
                 borderRadius: 999,
                 padding: '10px 14px',
@@ -731,26 +727,10 @@ export default function Page() {
             </button>
           ))}
 
-          <a
-            href="/order"
-            style={{
-              marginLeft: 'auto',
-              color: '#9fd4ff',
-              textDecoration: 'none',
-              alignSelf: 'center',
-            }}
-          >
+          <a href="/order" style={{ marginLeft: 'auto', color: '#9fd4ff', textDecoration: 'none', alignSelf: 'center' }}>
             Отследить заказ
           </a>
-
-          <a
-            href="/admin"
-            style={{
-              color: '#9fd4ff',
-              textDecoration: 'none',
-              alignSelf: 'center',
-            }}
-          >
+          <a href="/admin" style={{ color: '#9fd4ff', textDecoration: 'none', alignSelf: 'center' }}>
             Админка
           </a>
         </div>
@@ -763,7 +743,6 @@ export default function Page() {
         CATEGORY_ORDER.map((categoryKey) => {
           const categoryItems = groupedItems[categoryKey] || []
           if (!categoryItems.length) return null
-
           return (
             <AccordionSection
               key={categoryKey}
@@ -774,12 +753,7 @@ export default function Page() {
               onAdd={addToCart}
               onIncrease={increaseQuantity}
               onDecrease={decreaseQuantity}
-              onToggle={() =>
-                setOpenMap((prev) => ({
-                  ...prev,
-                  [categoryKey]: !prev[categoryKey],
-                }))
-              }
+              onToggle={() => setOpenMap((prev) => ({ ...prev, [categoryKey]: !prev[categoryKey] }))}
             />
           )
         })}
@@ -827,43 +801,22 @@ export default function Page() {
       {suggestionsOpen ? (
         <div
           onClick={() => setSuggestionsOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.55)',
-            zIndex: 65,
-            display: 'flex',
-            alignItems: 'flex-end',
-            justifyContent: 'center',
-            padding: 12,
-          }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 65, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 12 }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{
-              width: '100%',
-              maxWidth: 820,
-              maxHeight: '85vh',
-              overflow: 'auto',
-              background: '#081531',
-              borderRadius: 22,
-              border: '1px solid rgba(255,255,255,0.08)',
-              padding: 18,
-            }}
+            style={{ width: '100%', maxWidth: 820, maxHeight: '85vh', overflow: 'auto', background: '#081531', borderRadius: 22, border: '1px solid rgba(255,255,255,0.08)', padding: 18 }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 24, fontWeight: 900 }}>Добавить к заказу</div>
                 <div style={{ color: '#c4d1f6', marginTop: 6 }}>
-                  {suggestionsSource?.category === 'shawarma'
-                    ? 'Для шаурмы сразу показываем подходящие добавки и апсейлы.'
+                  {normalizeCategory(suggestionsSource?.category) === 'shawarma'
+                    ? 'Для шаурмы сначала показываем именно добавки к шаурме.'
                     : 'Подходящие дополнения к выбранной позиции.'}
                 </div>
               </div>
-              <button
-                onClick={() => setSuggestionsOpen(false)}
-                style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}
-              >
+              <button onClick={() => setSuggestionsOpen(false)} style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}>
                 ×
               </button>
             </div>
@@ -872,34 +825,15 @@ export default function Page() {
               {suggestions.map((item) => (
                 <div
                   key={item.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    alignItems: 'center',
-                    padding: '12px 14px',
-                    borderRadius: 14,
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                  }}
+                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
                 >
                   <div>
                     <div style={{ fontWeight: 800 }}>{item.name}</div>
-                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>
-                      {(CATEGORY_LABELS[item.category] || item.category)} · {formatPrice(item.price)}
-                    </div>
+                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>{(CATEGORY_LABELS[normalizeCategory(item.category)] || item.category)} · {formatPrice(item.price)}</div>
                   </div>
                   <button
                     onClick={() => addToCart(item, { openSuggestions: false })}
-                    style={{
-                      border: 0,
-                      borderRadius: 12,
-                      background: '#22c55e',
-                      color: '#071432',
-                      fontWeight: 900,
-                      padding: '10px 14px',
-                      cursor: 'pointer',
-                    }}
+                    style={{ border: 0, borderRadius: 12, background: '#22c55e', color: '#071432', fontWeight: 900, padding: '10px 14px', cursor: 'pointer' }}
                   >
                     Добавить
                   </button>
@@ -910,15 +844,7 @@ export default function Page() {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
               <button
                 onClick={() => setSuggestionsOpen(false)}
-                style={{
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  borderRadius: 14,
-                  background: 'transparent',
-                  color: '#fff',
-                  fontWeight: 700,
-                  padding: '12px 16px',
-                  cursor: 'pointer',
-                }}
+                style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, background: 'transparent', color: '#fff', fontWeight: 700, padding: '12px 16px', cursor: 'pointer' }}
               >
                 Продолжить без добавок
               </button>
@@ -927,15 +853,7 @@ export default function Page() {
                   setSuggestionsOpen(false)
                   setCheckoutOpen(true)
                 }}
-                style={{
-                  border: 0,
-                  borderRadius: 14,
-                  background: '#f4a01d',
-                  color: '#111',
-                  fontWeight: 900,
-                  padding: '12px 16px',
-                  cursor: 'pointer',
-                }}
+                style={{ border: 0, borderRadius: 14, background: '#f4a01d', color: '#111', fontWeight: 900, padding: '12px 16px', cursor: 'pointer' }}
               >
                 Перейти к оформлению
               </button>
@@ -947,117 +865,50 @@ export default function Page() {
       {checkoutOpen ? (
         <div
           onClick={() => setCheckoutOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.55)',
-            zIndex: 60,
-            display: 'flex',
-            alignItems: 'flex-end',
-            justifyContent: 'center',
-            padding: 12,
-          }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 12 }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{
-              width: '100%',
-              maxWidth: 720,
-              maxHeight: '90vh',
-              overflow: 'auto',
-              background: '#081531',
-              borderRadius: 22,
-              border: '1px solid rgba(255,255,255,0.08)',
-              padding: 18,
-            }}
+            style={{ width: '100%', maxWidth: 720, maxHeight: '90vh', overflow: 'auto', background: '#081531', borderRadius: 22, border: '1px solid rgba(255,255,255,0.08)', padding: 18 }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
               <div>
-                <div style={{ fontSize: 24, fontWeight: 900 }}>
-                  Оформление заказа {predictedOrderNumber || '----'}
-                </div>
-                <div style={{ color: '#c4d1f6', marginTop: 8, maxWidth: 560, lineHeight: 1.45 }}>
-                  {activeBranch?.phone
-                    ? <>После звонка администратору по номеру <a href={`tel:${activeBranch.phone}`} style={{ color: '#9fd4ff', textDecoration: 'none', fontWeight: 700 }}>{activeBranch.phone}</a>{activeBranch?.callLabel ? ` ${activeBranch.callLabel},` : ','} назовите номер своего заказа для подтверждения.</>
-                    : <>Назовите номер своего заказа администратору для подтверждения.</>}
+                <div style={{ fontSize: 24, fontWeight: 900 }}>Оформление заказа {previewLoading ? '…' : previewOrderNumber}</div>
+                <div style={{ color: '#c4d1f6', marginTop: 6 }}>Точка: {branchLabel}</div>
+                <div style={{ color: '#ffd7a1', marginTop: 10, lineHeight: 1.45, maxWidth: 560 }}>
+                  После звонка администратору по номеру {branchPhone || 'указанному для точки'} {shortBranchLabel}, {Number(previewOrderNumber) || 1} назовите номер своего заказа для подтверждения.
                 </div>
               </div>
-              <button
-                onClick={() => setCheckoutOpen(false)}
-                style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}
-              >
+              <button onClick={() => setCheckoutOpen(false)} style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}>
                 ×
               </button>
             </div>
 
-            <div style={{ color: '#c4d1f6', marginTop: 8, marginBottom: 16 }}>
-              Точка: {activeBranch?.name || branch}
-            </div>
-
-            <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gap: 10, marginTop: 16, marginBottom: 16 }}>
               {cartSummary.items.map((item) => (
                 <div
                   key={item.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                    alignItems: 'center',
-                    padding: '10px 12px',
-                    background: 'rgba(255,255,255,0.04)',
-                    borderRadius: 12,
-                  }}
+                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 12 }}
                 >
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700 }}>{item.name}</div>
-                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>
-                      {formatPrice(item.price)} × {item.quantity}
-                    </div>
+                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>{formatPrice(item.price)} × {item.quantity}</div>
                   </div>
-                  <div style={{ fontWeight: 800 }}>{formatPrice(item.lineTotal)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button onClick={() => decreaseQuantity(item.id)} style={{ width: 34, height: 34, borderRadius: 10, border: 0, background: '#1f335f', color: '#fff', fontSize: 22, cursor: 'pointer' }}>−</button>
+                    <div style={{ minWidth: 20, textAlign: 'center', fontWeight: 800, fontSize: 18 }}>{item.quantity}</div>
+                    <button onClick={() => increaseQuantity(item.id)} style={{ width: 34, height: 34, borderRadius: 10, border: 0, background: '#22c55e', color: '#071432', fontSize: 22, cursor: 'pointer', fontWeight: 800 }}>+</button>
+                    <button onClick={() => removeFromCart(item.id)} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, background: 'transparent', color: '#ffd7d7', fontWeight: 700, padding: '10px 12px', cursor: 'pointer' }}>Удалить</button>
+                    <div style={{ fontWeight: 800, minWidth: 70, textAlign: 'right' }}>{formatPrice(item.lineTotal)}</div>
+                  </div>
                 </div>
               ))}
             </div>
 
             <div style={{ display: 'grid', gap: 10 }}>
-              <input
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Ваше имя"
-                style={{
-                  padding: 14,
-                  borderRadius: 12,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: '#0b1b45',
-                  color: '#fff',
-                }}
-              />
-              <input
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                placeholder="Телефон"
-                style={{
-                  padding: 14,
-                  borderRadius: 12,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: '#0b1b45',
-                  color: '#fff',
-                }}
-              />
-              <textarea
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                placeholder="Комментарий к заказу"
-                rows={3}
-                style={{
-                  padding: 14,
-                  borderRadius: 12,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: '#0b1b45',
-                  color: '#fff',
-                  resize: 'vertical',
-                }}
-              />
+              <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ваше имя" style={{ padding: 14, borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: '#0b1b45', color: '#fff' }} />
+              <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Телефон" style={{ padding: 14, borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: '#0b1b45', color: '#fff' }} />
+              <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий к заказу" rows={3} style={{ padding: 14, borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: '#0b1b45', color: '#fff', resize: 'vertical' }} />
             </div>
 
             {submitError ? <div style={{ color: '#ffb4b4', marginTop: 12 }}>{submitError}</div> : null}
@@ -1067,21 +918,18 @@ export default function Page() {
                 <div style={{ color: '#c4d1f6' }}>Итого</div>
                 <div style={{ fontWeight: 900, fontSize: 24 }}>{formatPrice(cartSummary.total)}</div>
               </div>
-              <button
-                disabled={submitting}
-                onClick={submitOrder}
-                style={{
-                  border: 0,
-                  borderRadius: 14,
-                  background: submitting ? '#64748b' : '#22c55e',
-                  color: '#071432',
-                  fontWeight: 900,
-                  padding: '14px 20px',
-                  cursor: submitting ? 'default' : 'pointer',
-                }}
-              >
-                {submitting ? 'Оформляем...' : 'Подтвердить заказ'}
-              </button>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginLeft: 'auto' }}>
+                <button onClick={clearCart} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, background: 'transparent', color: '#fff', fontWeight: 800, padding: '14px 18px', cursor: 'pointer' }}>
+                  Очистить корзину
+                </button>
+                <button
+                  disabled={submitting}
+                  onClick={submitOrder}
+                  style={{ border: 0, borderRadius: 14, background: submitting ? '#64748b' : '#22c55e', color: '#071432', fontWeight: 900, padding: '14px 20px', cursor: submitting ? 'default' : 'pointer' }}
+                >
+                  {submitting ? 'Оформляем...' : 'Подтвердить заказ'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
