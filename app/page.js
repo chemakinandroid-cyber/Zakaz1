@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
 const BRANCHES = [
-  { id: 1, name: 'На Виражах — Аэропорт' },
-  { id: 2, name: 'На Виражах — Конечная' },
+  { id: 1, code: 'nv-fr-002', name: 'Аэропорт' },
+  { id: 2, code: 'nv-fr-001', name: 'Конечная' },
 ]
 
 const CATEGORY_LABELS = {
