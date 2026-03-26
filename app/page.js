@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
 const BRANCHES = [
-  { id: 1, code: 'nv-fr-002', name: 'На Виражах — Аэропорт' },
-  { id: 2, code: 'nv-sh-001', name: 'На Виражах — Конечная' },
+  { id: 'nv-fr-002', name: 'На Виражах — Аэропорт' },
+  { id: 'nv-sh-001', name: 'На Виражах — Конечная' },
 ]
 
 const CATEGORY_LABELS = {
@@ -292,16 +292,6 @@ export default function Page() {
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(CART_STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (typeof parsed?.branch === 'string') {
-          window.localStorage.removeItem(CART_STORAGE_KEY)
-        }
-      }
-    } catch {}
-
-    try {
-      const raw = window.localStorage.getItem(CART_STORAGE_KEY)
       if (!raw) return
       const parsed = JSON.parse(raw)
 
@@ -310,12 +300,9 @@ export default function Page() {
       }
 
       const rawSavedBranch = parsed?.branch
-      const savedBranch = Number(rawSavedBranch)
+      const savedBranch = typeof rawSavedBranch === 'string' ? rawSavedBranch : BRANCHES[0].id
 
-      if (
-        Number.isFinite(savedBranch) &&
-        BRANCHES.some((b) => b.id === savedBranch)
-      ) {
+      if (BRANCHES.some((b) => b.id === savedBranch)) {
         setBranch(savedBranch)
       } else {
         setBranch(BRANCHES[0].id)
@@ -367,12 +354,10 @@ export default function Page() {
         return
       }
 
-      const numericBranchId = Number(branch)
-
       const { data: stopData, error: stopError } = await supabase
         .from('stop_list')
         .select('menu_item_id, is_stopped')
-        .eq('branch_id', numericBranchId)
+        .eq('branch_id', branch)
 
       if (!active) return
 
@@ -501,22 +486,12 @@ export default function Page() {
 
     setSubmitting(true)
 
-    const numericBranchId = Number(branch)
-
-    if (!Number.isFinite(numericBranchId)) {
-      setSubmitError('Некорректный филиал. Очистите кэш браузера и выберите точку заново.')
-      setSubmitting(false)
-      return
-    }
-
-    console.log('ORDER branch_id =>', numericBranchId)
-
     try {
       const response = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          branch_id: numericBranchId,
+          branch_id: branch,
           customer_name: customerName,
           customer_phone: customerPhone,
           comment,
@@ -539,7 +514,7 @@ export default function Page() {
       try {
         window.localStorage.setItem(
           CART_STORAGE_KEY,
-          JSON.stringify({ branch: numericBranchId, items: [] })
+          JSON.stringify({ branch, items: [] })
         )
       } catch {}
 
