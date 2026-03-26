@@ -3,8 +3,20 @@
 import { useEffect, useMemo, useState } from 'react'
 
 const BRANCHES = [
-  { id: 'nv-fr-002', name: 'На Виражах — Аэропорт' },
-  { id: 'nv-sh-001', name: 'На Виражах — Конечная' },
+  {
+    id: 'nv-fr-002',
+    name: 'На Виражах — Аэропорт',
+    shortName: 'Аэропорт',
+    callLabel: 'Аэропорт, 7',
+    phone: '+79024524222',
+  },
+  {
+    id: 'nv-sh-001',
+    name: 'На Виражах — Конечная',
+    shortName: 'Конечная',
+    callLabel: 'Конечная',
+    phone: '+79085932688',
+  },
 ]
 
 const CATEGORY_LABELS = {
@@ -53,107 +65,41 @@ function matchesBranch(item, branchId) {
   return item.branch_ids.includes(branchId)
 }
 
-function normalizeText(value) {
-  return String(value || '').toLowerCase().trim()
-}
-
-function isShawarmaAddon(item) {
-  const joined = [
-    item?.category,
-    item?.subcategory,
-    item?.group,
-    item?.group_name,
-    item?.section,
-    item?.type,
-    item?.tags,
-    item?.name,
-    item?.description,
-  ]
-    .map(normalizeText)
-    .join(' ')
-
-  if (!joined) return false
-
-  return (
-    joined.includes('shawarma_addons') ||
-    joined.includes('shawarma-addons') ||
-    joined.includes('добавки к шаурме') ||
-    joined.includes('добавка к шаурме') ||
-    joined.includes('добавки для шаурмы') ||
-    joined.includes('добавка для шаурмы')
-  )
-}
-
 function buildSuggestions(sourceItem, allItems, cartIds) {
   const normalizedSourceCategory = normalizeCategory(sourceItem.category)
   const sourceVariant = sourceItem.variant || null
 
-  let suggestions = []
-
+  let allowedCategories = []
   if (normalizedSourceCategory === 'shawarma') {
-    suggestions = allItems.filter((item) => {
-      if (item.id === sourceItem.id) return false
-      if (cartIds.has(item.id)) return false
-      if (Number(item.price) <= 0) return false
-      if (!isShawarmaAddon(item)) return false
-
-      if (sourceVariant === 'chicken' && item.variant === 'pork') return false
-      if (sourceVariant === 'pork' && item.variant === 'chicken') return false
-
-      return true
-    })
-
-    if (!suggestions.length) {
-      suggestions = allItems.filter((item) => {
-        if (item.id === sourceItem.id) return false
-        if (cartIds.has(item.id)) return false
-        if (Number(item.price) <= 0) return false
-
-        const normalizedItemCategory = normalizeCategory(item.category)
-        if (!['sauces', 'drinks'].includes(normalizedItemCategory)) return false
-
-        if (sourceVariant === 'chicken' && item.variant === 'pork') return false
-        if (sourceVariant === 'pork' && item.variant === 'chicken') return false
-
-        return true
-      })
-    }
+    allowedCategories = ['fries', 'sauces', 'drinks']
+  } else if (normalizedSourceCategory === 'burgers' || normalizedSourceCategory === 'hotdogs') {
+    allowedCategories = ['fries', 'sauces', 'drinks']
+  } else if (normalizedSourceCategory === 'fries') {
+    allowedCategories = ['sauces', 'drinks']
   } else {
-    let allowedCategories = []
-    if (normalizedSourceCategory === 'burgers' || normalizedSourceCategory === 'hotdogs') {
-      allowedCategories = ['fries', 'sauces', 'drinks']
-    } else if (normalizedSourceCategory === 'fries') {
-      allowedCategories = ['sauces', 'drinks']
-    } else {
-      allowedCategories = ['drinks', 'sauces']
-    }
-
-    suggestions = allItems.filter((item) => {
-      if (item.id === sourceItem.id) return false
-      if (cartIds.has(item.id)) return false
-      if (Number(item.price) <= 0) return false
-
-      const normalizedItemCategory = normalizeCategory(item.category)
-      if (!allowedCategories.includes(normalizedItemCategory)) return false
-
-      if (sourceVariant === 'chicken' && item.variant === 'pork') return false
-      if (sourceVariant === 'pork' && item.variant === 'chicken') return false
-
-      return true
-    })
+    allowedCategories = ['drinks', 'sauces']
   }
 
-  const categoryPriority = {
-    shawarma_addons: 1,
-    sauces: 2,
-    drinks: 3,
-    fries: 4,
-  }
+  const suggestions = allItems.filter((item) => {
+    if (item.id === sourceItem.id) return false
+    if (cartIds.has(item.id)) return false
+    if (Number(item.price) <= 0) return false
+
+    const normalizedItemCategory = normalizeCategory(item.category)
+    if (!allowedCategories.includes(normalizedItemCategory)) return false
+
+    if (sourceVariant === 'chicken' && item.variant === 'pork') return false
+    if (sourceVariant === 'pork' && item.variant === 'chicken') return false
+
+    return true
+  })
+
+  const categoryPriority = { fries: 1, sauces: 2, drinks: 3 }
 
   return suggestions
     .sort((a, b) => {
-      const ca = categoryPriority[normalizeCategory(a.category)] || (isShawarmaAddon(a) ? 1 : 99)
-      const cb = categoryPriority[normalizeCategory(b.category)] || (isShawarmaAddon(b) ? 1 : 99)
+      const ca = categoryPriority[normalizeCategory(a.category)] || 99
+      const cb = categoryPriority[normalizeCategory(b.category)] || 99
       if (ca !== cb) return ca - cb
       return Number(a.price || 0) - Number(b.price || 0)
     })
@@ -529,6 +475,54 @@ export default function Page() {
     setCart((prev) => prev.filter((item) => availableIds.has(item.id)))
   }, [items])
 
+  const activeBranch = useMemo(() => BRANCHES.find((b) => b.id === branch) || BRANCHES[0], [branch])
+
+  useEffect(() => {
+    let active = true
+
+    async function loadPredictedOrderNumber() {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+      if (!url || !key) {
+        if (active) setPredictedOrderNumber('')
+        return
+      }
+
+      const { createClient } = await import('@supabase/supabase-js')
+      const supabase = createClient(url, key)
+
+      const { data, error } = await supabase
+        .from('orders')
+        .select('short_number, created_at')
+        .eq('branch_id', branch)
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      if (!active) return
+
+      if (error || !Array.isArray(data) || data.length === 0) {
+        setPredictedOrderNumber('0001')
+        return
+      }
+
+      const maxNumber = data.reduce((max, row) => {
+        const raw = String(row?.short_number || '')
+        const digits = raw.replace(/\D/g, '')
+        const value = Number(digits || 0)
+        return value > max ? value : max
+      }, 0)
+
+      setPredictedOrderNumber(String(maxNumber + 1).padStart(4, '0'))
+    }
+
+    loadPredictedOrderNumber()
+
+    return () => {
+      active = false
+    }
+  }, [branch, checkoutOpen])
+
   const groupedItems = useMemo(() => {
     const grouped = {}
 
@@ -544,6 +538,8 @@ export default function Page() {
 
     return grouped
   }, [items])
+
+  const [predictedOrderNumber, setPredictedOrderNumber] = useState('')
 
   const cartSummary = useMemo(() => {
     const byId = new Map(items.map((item) => [item.id, item]))
@@ -620,15 +616,6 @@ export default function Page() {
         )
         .filter((entry) => entry.quantity > 0)
     )
-  }
-
-  function removeFromCart(itemId) {
-    setCart((prev) => prev.filter((entry) => entry.id !== itemId))
-  }
-
-  function clearCart() {
-    setCart([])
-    setSuggestionsOpen(false)
   }
 
   async function submitOrder() {
@@ -869,7 +856,7 @@ export default function Page() {
                 <div style={{ fontSize: 24, fontWeight: 900 }}>Добавить к заказу</div>
                 <div style={{ color: '#c4d1f6', marginTop: 6 }}>
                   {suggestionsSource?.category === 'shawarma'
-                    ? 'Сначала показываем именно добавки к шаурме из меню.'
+                    ? 'Для шаурмы сразу показываем подходящие добавки и апсейлы.'
                     : 'Подходящие дополнения к выбранной позиции.'}
                 </div>
               </div>
@@ -985,7 +972,16 @@ export default function Page() {
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 900 }}>Оформление заказа</div>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 900 }}>
+                  Оформление заказа {predictedOrderNumber || '----'}
+                </div>
+                <div style={{ color: '#c4d1f6', marginTop: 8, maxWidth: 560, lineHeight: 1.45 }}>
+                  {activeBranch?.phone
+                    ? <>После звонка администратору по номеру <a href={`tel:${activeBranch.phone}`} style={{ color: '#9fd4ff', textDecoration: 'none', fontWeight: 700 }}>{activeBranch.phone}</a>{activeBranch?.callLabel ? ` ${activeBranch.callLabel},` : ','} назовите номер своего заказа для подтверждения.</>
+                    : <>Назовите номер своего заказа администратору для подтверждения.</>}
+                </div>
+              </div>
               <button
                 onClick={() => setCheckoutOpen(false)}
                 style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}
@@ -995,7 +991,7 @@ export default function Page() {
             </div>
 
             <div style={{ color: '#c4d1f6', marginTop: 8, marginBottom: 16 }}>
-              Точка: {BRANCHES.find((b) => b.id === branch)?.name || branch}
+              Точка: {activeBranch?.name || branch}
             </div>
 
             <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
@@ -1007,73 +1003,18 @@ export default function Page() {
                     justifyContent: 'space-between',
                     gap: 12,
                     alignItems: 'center',
-                    padding: '12px 14px',
+                    padding: '10px 12px',
                     background: 'rgba(255,255,255,0.04)',
                     borderRadius: 12,
-                    flexWrap: 'wrap',
                   }}
                 >
-                  <div style={{ minWidth: 220, flex: '1 1 240px' }}>
+                  <div>
                     <div style={{ fontWeight: 700 }}>{item.name}</div>
                     <div style={{ color: '#c4d1f6', fontSize: 13 }}>
                       {formatPrice(item.price)} × {item.quantity}
                     </div>
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <button
-                      onClick={() => decreaseQuantity(item.id)}
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 10,
-                        border: 0,
-                        background: '#1f335f',
-                        color: '#fff',
-                        fontSize: 22,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      −
-                    </button>
-                    <div style={{ minWidth: 20, textAlign: 'center', fontWeight: 800, fontSize: 18 }}>
-                      {item.quantity}
-                    </div>
-                    <button
-                      onClick={() => increaseQuantity(item.id)}
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 10,
-                        border: 0,
-                        background: '#22c55e',
-                        color: '#071432',
-                        fontSize: 22,
-                        cursor: 'pointer',
-                        fontWeight: 800,
-                      }}
-                    >
-                      +
-                    </button>
-                    <button
-                      onClick={() => removeFromCart(item.id)}
-                      style={{
-                        border: '1px solid rgba(255,255,255,0.12)',
-                        borderRadius: 10,
-                        background: 'transparent',
-                        color: '#ffb4b4',
-                        fontWeight: 800,
-                        padding: '9px 12px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Удалить
-                    </button>
-                  </div>
-
-                  <div style={{ fontWeight: 800, minWidth: 90, textAlign: 'right' }}>
-                    {formatPrice(item.lineTotal)}
-                  </div>
+                  <div style={{ fontWeight: 800 }}>{formatPrice(item.lineTotal)}</div>
                 </div>
               ))}
             </div>
@@ -1126,38 +1067,21 @@ export default function Page() {
                 <div style={{ color: '#c4d1f6' }}>Итого</div>
                 <div style={{ fontWeight: 900, fontSize: 24 }}>{formatPrice(cartSummary.total)}</div>
               </div>
-
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginLeft: 'auto' }}>
-                <button
-                  onClick={clearCart}
-                  style={{
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: 14,
-                    background: 'transparent',
-                    color: '#fff',
-                    fontWeight: 800,
-                    padding: '14px 18px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Очистить корзину
-                </button>
-                <button
-                  disabled={submitting}
-                  onClick={submitOrder}
-                  style={{
-                    border: 0,
-                    borderRadius: 14,
-                    background: submitting ? '#64748b' : '#22c55e',
-                    color: '#071432',
-                    fontWeight: 900,
-                    padding: '14px 20px',
-                    cursor: submitting ? 'default' : 'pointer',
-                  }}
-                >
-                  {submitting ? 'Оформляем...' : 'Подтвердить заказ'}
-                </button>
-              </div>
+              <button
+                disabled={submitting}
+                onClick={submitOrder}
+                style={{
+                  border: 0,
+                  borderRadius: 14,
+                  background: submitting ? '#64748b' : '#22c55e',
+                  color: '#071432',
+                  fontWeight: 900,
+                  padding: '14px 20px',
+                  cursor: submitting ? 'default' : 'pointer',
+                }}
+              >
+                {submitting ? 'Оформляем...' : 'Подтвердить заказ'}
+              </button>
             </div>
           </div>
         </div>
