@@ -37,20 +37,19 @@ function mapMenuRow(row) {
       'Без названия',
     price: toNumber(
       row?.price ??
-      row?.base_price ??
-      row?.sale_price ??
-      row?.cost ??
-      0
+        row?.base_price ??
+        row?.sale_price ??
+        row?.cost ??
+        0
     ),
   }
 }
 
-// 🔥 стоп-лист НЕ валит заказ
 async function loadStopMap(supabase, branchId) {
   try {
     let query = supabase.from('stop_list').select('menu_item_id, is_stopped')
 
-    if (branchId) {
+    if (branchId !== null && branchId !== undefined && branchId !== '') {
       query = query.eq('branch_id', branchId)
     }
 
@@ -64,7 +63,7 @@ async function loadStopMap(supabase, branchId) {
     const map = new Map()
     for (const row of data || []) {
       if (row?.menu_item_id != null) {
-        map.set(String(row.menu_item_id), Boolean(row.is_stopped))
+        map.set(String(row.menu_item_id), Boolean(row?.is_stopped))
       }
     }
 
@@ -82,69 +81,162 @@ async function loadMenuItemsByIds(supabase, ids) {
     .in('id', ids)
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(`Не удалось загрузить menu_items: ${error.message}`)
   }
 
   return data || []
 }
 
-// 🔥 УМНЫЙ ИНСЕРТ ЗАКАЗА (без привязки к comment)
+async function tryInsertOrder(supabase, row) {
+  const { data, error } = await supabase
+    .from('orders')
+    .insert(row)
+    .select('*')
+    .single()
+
+  return { data, error }
+}
+
 async function createOrderRow(supabase, payload) {
-  const baseVariants = [
+  const branchId = payload.branchId
+  const shortNumber = payload.shortNumber
+  const total = payload.total
+  const customerName = payload.customerName
+  const customerPhone = payload.customerPhone
+  const comment = payload.comment
+
+  const rows = [
+    // Максимально полные варианты
     {
-      branch_id: payload.branchId,
-      short_number: payload.shortNumber,
+      branch_id: branchId,
+      short_number: shortNumber,
       status: 'new',
       is_confirmed: false,
-      total: payload.total,
-      customer_name: payload.customerName,
-      customer_phone: payload.customerPhone,
+      total: total,
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      comment: comment,
     },
     {
-      branch_id: payload.branchId,
-      order_number: payload.shortNumber,
+      branch_id: branchId,
+      short_number: shortNumber,
       status: 'new',
       is_confirmed: false,
-      total_amount: payload.total,
-      customer_name: payload.customerName,
-      customer_phone: payload.customerPhone,
+      total: total,
+      customer_name: customerName,
+      customer_phone: customerPhone,
     },
     {
-      branch_id: payload.branchId,
+      branch_id: branchId,
+      short_number: shortNumber,
       status: 'new',
-      total: payload.total,
-      customer_name: payload.customerName,
-      customer_phone: payload.customerPhone,
+      total: total,
+      customer_name: customerName,
+      customer_phone: customerPhone,
+    },
+    {
+      branch_id: branchId,
+      short_number: shortNumber,
+      status: 'new',
+      total: total,
+      customer_phone: customerPhone,
+    },
+    {
+      branch_id: branchId,
+      short_number: shortNumber,
+      status: 'new',
+      total: total,
+    },
+
+    // Варианты с order_number / total_amount
+    {
+      branch_id: branchId,
+      order_number: shortNumber,
+      status: 'new',
+      is_confirmed: false,
+      total_amount: total,
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      comment: comment,
+    },
+    {
+      branch_id: branchId,
+      order_number: shortNumber,
+      status: 'new',
+      is_confirmed: false,
+      total_amount: total,
+      customer_name: customerName,
+      customer_phone: customerPhone,
+    },
+    {
+      branch_id: branchId,
+      order_number: shortNumber,
+      status: 'new',
+      total_amount: total,
+      customer_phone: customerPhone,
+    },
+    {
+      branch_id: branchId,
+      order_number: shortNumber,
+      status: 'new',
+      total_amount: total,
+    },
+
+    // Варианты без номера
+    {
+      branch_id: branchId,
+      status: 'new',
+      is_confirmed: false,
+      total: total,
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      comment: comment,
+    },
+    {
+      branch_id: branchId,
+      status: 'new',
+      is_confirmed: false,
+      total: total,
+      customer_phone: customerPhone,
+    },
+    {
+      branch_id: branchId,
+      status: 'new',
+      total: total,
+      customer_phone: customerPhone,
+    },
+    {
+      branch_id: branchId,
+      status: 'new',
+      total: total,
+    },
+
+    // Совсем минимальные
+    {
+      status: 'new',
+      total: total,
     },
   ]
 
-  const commentFields = ['comment', 'customer_comment', 'notes', 'note']
-
-  let variants = [...baseVariants]
-
-  if (payload.comment) {
-    const withComments = []
-    for (const base of baseVariants) {
-      for (const field of commentFields) {
-        withComments.push({ ...base, [field]: payload.comment })
-      }
-    }
-    variants = [...withComments, ...variants]
-  }
-
   let lastError = null
 
-  for (const row of variants) {
-    const { data, error } = await supabase
-      .from('orders')
-      .insert(row)
-      .select('*')
-      .single()
+  for (const row of rows) {
+    const cleaned = Object.fromEntries(
+      Object.entries(row).filter(([_, value]) => {
+        if (value === undefined || value === null) return false
+        if (typeof value === 'string' && value.trim() === '') return false
+        return true
+      })
+    )
 
-    if (!error && data) return data
+    const { data, error } = await tryInsertOrder(supabase, cleaned)
+
+    if (!error && data) {
+      return data
+    }
 
     lastError = error
-    console.error('ORDER INSERT FAIL:', error)
+    console.error('ORDER_INSERT_FAIL:', cleaned, error)
   }
 
   throw new Error(lastError?.message || 'Не удалось создать заказ')
@@ -174,19 +266,26 @@ async function createOrderItems(supabase, orderId, items) {
       quantity: item.quantity,
       price: item.price,
     })),
+    items.map((item) => ({
+      order_id: orderId,
+      menu_item_id: item.id,
+      quantity: item.quantity,
+      price: item.price,
+    })),
   ]
 
   let lastError = null
 
   for (const rows of variants) {
     const { error } = await supabase.from('order_items').insert(rows)
+
     if (!error) return
 
     lastError = error
-    console.error('ORDER ITEMS FAIL:', error)
+    console.error('ORDER_ITEMS_FAIL:', rows, error)
   }
 
-  throw new Error(lastError?.message || 'Не удалось сохранить позиции')
+  throw new Error(lastError?.message || 'Не удалось сохранить позиции заказа')
 }
 
 function makeShortNumber() {
@@ -202,57 +301,61 @@ export async function POST(request) {
     const customerName = normalizeString(body?.customerName ?? body?.customer_name)
     const customerPhone = normalizeString(body?.customerPhone ?? body?.customer_phone)
     const comment = normalizeString(body?.comment)
-
     const rawItems = Array.isArray(body?.items) ? body.items : []
 
     if (!rawItems.length) {
       return NextResponse.json({ error: 'Корзина пуста' }, { status: 400 })
     }
 
-    const cart = rawItems
+    const normalizedCart = rawItems
       .map((item) => ({
         id: item?.id ?? item?.item_id ?? item?.menu_item_id,
-        quantity: Math.max(1, parseInt(item?.quantity) || 1),
+        quantity: Math.max(1, parseInt(item?.quantity, 10) || 1),
       }))
-      .filter((i) => i.id != null)
+      .filter((item) => item.id != null)
 
-    const ids = [...new Set(cart.map((i) => i.id))]
+    if (!normalizedCart.length) {
+      return NextResponse.json(
+        { error: 'Нет корректных позиций для заказа' },
+        { status: 400 }
+      )
+    }
 
+    const ids = [...new Set(normalizedCart.map((item) => item.id))]
     const menuRows = await loadMenuItemsByIds(supabase, ids)
-    const menuMap = new Map(menuRows.map((r) => [String(r.id), mapMenuRow(r)]))
-
+    const menuMap = new Map(menuRows.map((row) => [String(row.id), mapMenuRow(row)]))
     const stopMap = await loadStopMap(supabase, branchId)
 
-    const items = []
+    const preparedItems = []
 
-    for (const c of cart) {
-      const m = menuMap.get(String(c.id))
+    for (const cartItem of normalizedCart) {
+      const menuItem = menuMap.get(String(cartItem.id))
 
-      if (!m) {
+      if (!menuItem) {
         return NextResponse.json(
-          { error: `Нет позиции id ${c.id}` },
+          { error: `Позиция с id ${cartItem.id} не найдена в menu_items` },
           { status: 400 }
         )
       }
 
-      if (stopMap.get(String(c.id)) === true) {
+      if (stopMap.get(String(cartItem.id)) === true) {
         return NextResponse.json(
-          { error: `${m.name} на стопе` },
+          { error: `Позиция "${menuItem.name}" сейчас на стопе` },
           { status: 400 }
         )
       }
 
-      items.push({
-        id: m.id,
-        name: m.name,
-        price: m.price,
-        quantity: c.quantity,
-        lineTotal: Number((m.price * c.quantity).toFixed(2)),
+      preparedItems.push({
+        id: menuItem.id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: cartItem.quantity,
+        lineTotal: Number((menuItem.price * cartItem.quantity).toFixed(2)),
       })
     }
 
     const total = Number(
-      items.reduce((s, i) => s + i.lineTotal, 0).toFixed(2)
+      preparedItems.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2)
     )
 
     const shortNumber = makeShortNumber()
@@ -266,16 +369,17 @@ export async function POST(request) {
       comment,
     })
 
-    await createOrderItems(supabase, order.id, items)
+    await createOrderItems(supabase, order.id, preparedItems)
 
     return NextResponse.json({
       ok: true,
       orderId: order.id,
       shortNumber: order.short_number ?? order.order_number ?? shortNumber,
       total,
+      order,
     })
   } catch (e) {
-    console.error('ORDER ERROR:', e)
+    console.error('ORDER_ERROR:', e)
 
     return NextResponse.json(
       { error: e?.message || 'Ошибка оформления заказа' },
