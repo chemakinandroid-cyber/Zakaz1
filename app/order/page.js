@@ -26,6 +26,10 @@ function normalizeDigits(value) {
   return String(value || '').trim().replace(/^0+/, '') || '0'
 }
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim())
+}
+
 function buildSearchCandidates(rawValue) {
   const value = String(rawValue || '').trim()
   const compact = value.replace(/\s+/g, '')
@@ -67,8 +71,7 @@ function pickBestOrder(rows, requestedValue) {
       const diff = score(b) - score(a)
       if (diff !== 0) return diff
       return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-    })
-    [0]
+    })[0]
 }
 
 function formatDateTime(value) {
@@ -103,12 +106,11 @@ function OrderPageInner() {
   const [loading, setLoading] = useState(false)
 
   async function loadOrderDetails(orderRow) {
-    const [{ data: orderItems }, { data: branchRow }] = await Promise.all([
+    const [{ data: orderItems, error: orderItemsError }, { data: branchRow }] = await Promise.all([
       supabase
         .from('order_items')
         .select('*')
-        .eq('order_id', orderRow.id)
-        .order('created_at', { ascending: true }),
+        .eq('order_id', orderRow.id),
       supabase
         .from('branches')
         .select('id, name')
@@ -116,8 +118,16 @@ function OrderPageInner() {
         .maybeSingle(),
     ])
 
+    if (orderItemsError) {
+      throw orderItemsError
+    }
+
+    const sortedItems = [...(orderItems || [])].sort((a, b) => {
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    })
+
     setOrder(orderRow)
-    setItems(orderItems || [])
+    setItems(sortedItems)
     setBranchName(resolveBranchName(orderRow, branchRow))
   }
 
@@ -146,10 +156,12 @@ function OrderPageInner() {
       const orParts = []
 
       for (const candidate of candidates) {
-        const safe = candidate.replace(/,/g, '')
+        const safe = candidate.replace(/[,%]/g, '')
         orParts.push(`short_number.eq.${safe}`)
         orParts.push(`order_number.eq.${safe}`)
-        orParts.push(`id.eq.${safe}`)
+        if (isUuid(safe)) {
+          orParts.push(`id.eq.${safe}`)
+        }
       }
 
       const { data: rows, error: rowsError } = await supabase
@@ -167,7 +179,6 @@ function OrderPageInner() {
 
       if (!bestOrder) {
         setError('Заказ не найден')
-        setLoading(false)
         return
       }
 
