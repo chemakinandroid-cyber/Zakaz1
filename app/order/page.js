@@ -15,49 +15,82 @@ const LABELS = {
   expired: 'Истёк',
 }
 
-function buildSearchCandidates(value) {
-  const raw = String(value || '').trim()
-  if (!raw) return []
-
-  const compact = raw.replace(/\s+/g, '')
-  const noLeadingZeros = compact.replace(/^0+(\d+)$/, '$1')
-
-  return [...new Set([raw, compact, noLeadingZeros].filter(Boolean))]
+const BRANCH_NAMES = {
+  '1': 'На Виражах — Конечная',
+  '2': 'На Виражах — Аэропорт',
+  'nv-sh-001': 'На Виражах — Конечная',
+  'nv-fr-002': 'На Виражах — Аэропорт',
 }
 
-async function findOrder(searchNumber) {
-  const candidates = buildSearchCandidates(searchNumber)
+function normalizeDigits(value) {
+  return String(value || '').trim().replace(/^0+/, '') || '0'
+}
 
-  for (const candidate of candidates) {
-    const byShort = await supabase
-      .from('orders')
-      .select('*')
-      .eq('short_number', candidate)
-      .maybeSingle()
+function buildSearchCandidates(rawValue) {
+  const value = String(rawValue || '').trim()
+  const compact = value.replace(/\s+/g, '')
+  const numeric = normalizeDigits(compact)
+  const variants = new Set([value, compact, numeric])
 
-    if (byShort.data) return { data: byShort.data, error: null }
-    if (byShort.error) return { data: null, error: byShort.error }
-
-    const byOrderNumber = await supabase
-      .from('orders')
-      .select('*')
-      .eq('order_number', candidate)
-      .maybeSingle()
-
-    if (byOrderNumber.data) return { data: byOrderNumber.data, error: null }
-    if (byOrderNumber.error) return { data: null, error: byOrderNumber.error }
-
-    const byId = await supabase
-      .from('orders')
-      .select('*')
-      .eq('id', candidate)
-      .maybeSingle()
-
-    if (byId.data) return { data: byId.data, error: null }
-    if (byId.error) return { data: null, error: byId.error }
+  if (/^\d+$/.test(compact)) {
+    variants.add(compact.padStart(4, '0'))
+    variants.add(compact.padStart(3, '0'))
   }
 
-  return { data: null, error: null }
+  return Array.from(variants).filter(Boolean)
+}
+
+function pickBestOrder(rows, requestedValue) {
+  if (!Array.isArray(rows) || rows.length === 0) return null
+
+  const trimmed = String(requestedValue || '').trim()
+  const compact = trimmed.replace(/\s+/g, '')
+  const digits = normalizeDigits(compact)
+
+  const score = (row) => {
+    const shortNumber = String(row?.short_number || '').trim()
+    const orderNumber = String(row?.order_number || '').trim()
+    const id = String(row?.id || '').trim()
+
+    if (shortNumber === compact) return 100
+    if (normalizeDigits(shortNumber) === digits) return 95
+    if (orderNumber === compact) return 90
+    if (orderNumber.endsWith(`-${compact}`)) return 85
+    if (id === compact) return 80
+    if (shortNumber.includes(compact)) return 70
+    if (orderNumber.includes(compact)) return 60
+    return 0
+  }
+
+  return [...rows]
+    .sort((a, b) => {
+      const diff = score(b) - score(a)
+      if (diff !== 0) return diff
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    })
+    [0]
+}
+
+function formatDateTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function resolveBranchName(orderRow, branchRow) {
+  return (
+    branchRow?.name ||
+    BRANCH_NAMES[String(orderRow?.branch_id || '').trim()] ||
+    String(orderRow?.branch_id || '').trim() ||
+    '—'
+  )
 }
 
 function OrderPageInner() {
@@ -69,8 +102,28 @@ function OrderPageInner() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  async function loadOrderDetails(orderRow) {
+    const [{ data: orderItems }, { data: branchRow }] = await Promise.all([
+      supabase
+        .from('order_items')
+        .select('*')
+        .eq('order_id', orderRow.id)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('branches')
+        .select('id, name')
+        .eq('id', orderRow.branch_id)
+        .maybeSingle(),
+    ])
+
+    setOrder(orderRow)
+    setItems(orderItems || [])
+    setBranchName(resolveBranchName(orderRow, branchRow))
+  }
+
   async function search(forcedNumber) {
     const searchNumber = String(forcedNumber ?? number).trim()
+
     setError('')
     setOrder(null)
     setItems([])
@@ -88,31 +141,43 @@ function OrderPageInner() {
 
     setLoading(true)
 
-    const { data: orderData, error: orderError } = await findOrder(searchNumber)
+    try {
+      const candidates = buildSearchCandidates(searchNumber)
+      const orParts = []
 
-    if (orderError || !orderData) {
-      setLoading(false)
-      setError('Заказ не найден')
-      return
-    }
+      for (const candidate of candidates) {
+        const safe = candidate.replace(/,/g, '')
+        orParts.push(`short_number.eq.${safe}`)
+        orParts.push(`order_number.eq.${safe}`)
+        orParts.push(`id.eq.${safe}`)
+      }
 
-    const [{ data: orderItems }, { data: branchRow }] = await Promise.all([
-      supabase
-        .from('order_items')
+      const { data: rows, error: rowsError } = await supabase
+        .from('orders')
         .select('*')
-        .eq('order_id', orderData.id)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('branches')
-        .select('id, name')
-        .eq('id', orderData.branch_id)
-        .maybeSingle(),
-    ])
+        .or(orParts.join(','))
+        .order('created_at', { ascending: false })
+        .limit(20)
 
-    setOrder(orderData)
-    setItems(orderItems || [])
-    setBranchName(branchRow?.name || orderData.branch_id)
-    setLoading(false)
+      if (rowsError) {
+        throw rowsError
+      }
+
+      const bestOrder = pickBestOrder(rows || [], searchNumber)
+
+      if (!bestOrder) {
+        setError('Заказ не найден')
+        setLoading(false)
+        return
+      }
+
+      await loadOrderDetails(bestOrder)
+    } catch (e) {
+      console.error('order search error', e)
+      setError('Не удалось загрузить заказ')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -125,6 +190,7 @@ function OrderPageInner() {
 
   useEffect(() => {
     if (!supabase || !order?.id) return
+
     const channel = supabase
       .channel('order-status-' + order.id)
       .on(
@@ -132,30 +198,38 @@ function OrderPageInner() {
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${order.id}` },
         async (payload) => {
           const updated = payload.new
-          setOrder(updated)
           const { data: branchRow } = await supabase
             .from('branches')
-            .select('name')
+            .select('id, name')
             .eq('id', updated.branch_id)
             .maybeSingle()
-          setBranchName(branchRow?.name || updated.branch_id)
+
+          setOrder(updated)
+          setBranchName(resolveBranchName(updated, branchRow))
         }
       )
       .subscribe()
+
     return () => {
       supabase.removeChannel(channel)
     }
   }, [order?.id])
 
   const label = useMemo(() => LABELS[order?.status] || '—', [order])
+  const displayNumber = order?.short_number || order?.order_number || order?.id || ''
+  const createdAt = formatDateTime(order?.created_at)
 
   return (
     <main style={{ maxWidth: 720, margin: '0 auto', padding: 18 }}>
       <h1>Отслеживание заказа</h1>
+
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <input
           value={number}
           onChange={(e) => setNumber(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') search()
+          }}
           placeholder="Введите номер заказа"
           style={{
             flex: 1,
@@ -167,22 +241,35 @@ function OrderPageInner() {
             color: '#fff',
           }}
         />
+
         <button
           onClick={() => search()}
-          style={{ padding: '14px 18px', borderRadius: 12, border: 0, background: '#f4a01d', color: '#111', fontWeight: 800 }}
+          disabled={loading}
+          style={{
+            padding: '14px 18px',
+            borderRadius: 12,
+            border: 0,
+            background: '#f4a01d',
+            color: '#111',
+            fontWeight: 800,
+            opacity: loading ? 0.8 : 1,
+            cursor: loading ? 'default' : 'pointer',
+          }}
         >
-          Найти
+          {loading ? 'Поиск...' : 'Найти'}
         </button>
       </div>
+
       {loading ? <div style={{ color: '#c4d1f6', marginBottom: 12 }}>Ищем заказ...</div> : null}
       {error ? <div style={{ color: '#ffb4b4', marginBottom: 12 }}>{error}</div> : null}
 
       {order ? (
         <div style={{ background: '#0b1b45', borderRadius: 18, padding: 16, border: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ fontSize: 42, fontWeight: 900 }}>{order.short_number || order.order_number || order.id}</div>
+          <div style={{ fontSize: 42, fontWeight: 900 }}>{displayNumber}</div>
           <div style={{ color: '#d9e4ff', marginTop: 8 }}>Статус: {label}</div>
-          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Точка: {branchName || order.branch_id}</div>
-          <div style={{ color: '#d9e4ff' }}>Сумма: {order.total} ₽</div>
+          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Точка: {branchName}</div>
+          {createdAt ? <div style={{ color: '#c4d1f6', marginTop: 8 }}>Создан: {createdAt}</div> : null}
+          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Сумма: {order.total} ₽</div>
 
           {items.length ? (
             <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
