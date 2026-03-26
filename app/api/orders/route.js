@@ -97,6 +97,16 @@ async function tryInsertOrder(supabase, row) {
   return { data, error }
 }
 
+function cleanRow(row) {
+  return Object.fromEntries(
+    Object.entries(row).filter(([_, value]) => {
+      if (value === undefined || value === null) return false
+      if (typeof value === 'string' && value.trim() === '') return false
+      return true
+    })
+  )
+}
+
 async function createOrderRow(supabase, payload) {
   const branchId = payload.branchId
   const shortNumber = payload.shortNumber
@@ -105,75 +115,16 @@ async function createOrderRow(supabase, payload) {
   const customerPhone = payload.customerPhone
   const comment = payload.comment
 
+  if (branchId === null || branchId === undefined || branchId === '') {
+    throw new Error('Не выбран филиал (branch_id)')
+  }
+
   const rows = [
-    // Максимально полные варианты
     {
       branch_id: branchId,
       short_number: shortNumber,
       status: 'new',
-      is_confirmed: false,
-      total: total,
-      customer_name: customerName,
-      customer_phone: customerPhone,
-      comment: comment,
-    },
-    {
-      branch_id: branchId,
-      short_number: shortNumber,
-      status: 'new',
-      is_confirmed: false,
-      total: total,
-      customer_name: customerName,
-      customer_phone: customerPhone,
-    },
-    {
-      branch_id: branchId,
-      short_number: shortNumber,
-      status: 'new',
-      total: total,
-      customer_name: customerName,
-      customer_phone: customerPhone,
-    },
-    {
-      branch_id: branchId,
-      short_number: shortNumber,
-      status: 'new',
-      total: total,
-      customer_phone: customerPhone,
-    },
-    {
-      branch_id: branchId,
-      short_number: shortNumber,
-      status: 'new',
-      total: total,
-    },
-
-    // Варианты с order_number / total_amount
-    {
-      branch_id: branchId,
-      order_number: shortNumber,
-      status: 'new',
-      is_confirmed: false,
-      total_amount: total,
-      customer_name: customerName,
-      customer_phone: customerPhone,
-      comment: comment,
-    },
-    {
-      branch_id: branchId,
-      order_number: shortNumber,
-      status: 'new',
-      is_confirmed: false,
-      total_amount: total,
-      customer_name: customerName,
-      customer_phone: customerPhone,
-    },
-    {
-      branch_id: branchId,
-      order_number: shortNumber,
-      status: 'new',
-      total_amount: total,
-      customer_phone: customerPhone,
+      total,
     },
     {
       branch_id: branchId,
@@ -181,111 +132,43 @@ async function createOrderRow(supabase, payload) {
       status: 'new',
       total_amount: total,
     },
-
-    // Варианты без номера
     {
       branch_id: branchId,
       status: 'new',
-      is_confirmed: false,
-      total: total,
-      customer_name: customerName,
-      customer_phone: customerPhone,
-      comment: comment,
-    },
-    {
-      branch_id: branchId,
-      status: 'new',
-      is_confirmed: false,
-      total: total,
-      customer_phone: customerPhone,
-    },
-    {
-      branch_id: branchId,
-      status: 'new',
-      total: total,
-      customer_phone: customerPhone,
-    },
-    {
-      branch_id: branchId,
-      status: 'new',
-      total: total,
-    },
-
-    // Совсем минимальные
-    {
-      status: 'new',
-      total: total,
+      total,
     },
   ]
 
   let lastError = null
 
-  for (const row of rows) {
-    const cleaned = Object.fromEntries(
-      Object.entries(row).filter(([_, value]) => {
-        if (value === undefined || value === null) return false
-        if (typeof value === 'string' && value.trim() === '') return false
-        return true
-      })
-    )
-
-    const { data, error } = await tryInsertOrder(supabase, cleaned)
+  for (const rawRow of rows) {
+    const row = cleanRow(rawRow)
+    const { data, error } = await tryInsertOrder(supabase, row)
 
     if (!error && data) {
       return data
     }
 
     lastError = error
-    console.error('ORDER_INSERT_FAIL:', cleaned, error)
+    console.error('ORDER_INSERT_FAIL:', row, error)
   }
 
   throw new Error(lastError?.message || 'Не удалось создать заказ')
 }
 
 async function createOrderItems(supabase, orderId, items) {
-  const variants = [
-    items.map((item) => ({
-      order_id: orderId,
-      item_id: item.id,
-      item_name: item.name,
-      price: item.price,
-      quantity: item.quantity,
-      line_total: item.lineTotal,
-    })),
-    items.map((item) => ({
-      order_id: orderId,
-      menu_item_id: item.id,
-      item_name: item.name,
-      price: item.price,
-      quantity: item.quantity,
-      total: item.lineTotal,
-    })),
-    items.map((item) => ({
-      order_id: orderId,
-      item_id: item.id,
-      quantity: item.quantity,
-      price: item.price,
-    })),
-    items.map((item) => ({
-      order_id: orderId,
-      menu_item_id: item.id,
-      quantity: item.quantity,
-      price: item.price,
-    })),
-  ]
+  const rows = items.map((item) => ({
+    order_id: orderId,
+    item_id: item.id,
+    quantity: item.quantity,
+    price: item.price,
+  }))
 
-  let lastError = null
+  const { error } = await supabase.from('order_items').insert(rows)
 
-  for (const rows of variants) {
-    const { error } = await supabase.from('order_items').insert(rows)
-
-    if (!error) return
-
-    lastError = error
-    console.error('ORDER_ITEMS_FAIL:', rows, error)
+  if (error) {
+    throw new Error(error.message)
   }
-
-  throw new Error(lastError?.message || 'Не удалось сохранить позиции заказа')
 }
 
 function makeShortNumber() {
@@ -297,93 +180,63 @@ export async function POST(request) {
     const supabase = getSupabaseAdmin()
     const body = await request.json()
 
-    const branchId = body?.branchId ?? body?.branch_id ?? null
-    const customerName = normalizeString(body?.customerName ?? body?.customer_name)
-    const customerPhone = normalizeString(body?.customerPhone ?? body?.customer_phone)
-    const comment = normalizeString(body?.comment)
+    const branchId = body?.branch_id ?? body?.branchId ?? null
     const rawItems = Array.isArray(body?.items) ? body.items : []
+
+    if (!branchId) {
+      return NextResponse.json({ error: 'Нет branch_id' }, { status: 400 })
+    }
 
     if (!rawItems.length) {
       return NextResponse.json({ error: 'Корзина пуста' }, { status: 400 })
     }
 
-    const normalizedCart = rawItems
+    const cart = rawItems
       .map((item) => ({
-        id: item?.id ?? item?.item_id ?? item?.menu_item_id,
-        quantity: Math.max(1, parseInt(item?.quantity, 10) || 1),
+        id: item?.id,
+        quantity: Math.max(1, parseInt(item?.quantity) || 1),
       }))
-      .filter((item) => item.id != null)
+      .filter((i) => i.id != null)
 
-    if (!normalizedCart.length) {
-      return NextResponse.json(
-        { error: 'Нет корректных позиций для заказа' },
-        { status: 400 }
-      )
-    }
+    const ids = [...new Set(cart.map((i) => i.id))]
 
-    const ids = [...new Set(normalizedCart.map((item) => item.id))]
     const menuRows = await loadMenuItemsByIds(supabase, ids)
-    const menuMap = new Map(menuRows.map((row) => [String(row.id), mapMenuRow(row)]))
+    const menuMap = new Map(menuRows.map((r) => [String(r.id), mapMenuRow(r)]))
     const stopMap = await loadStopMap(supabase, branchId)
 
-    const preparedItems = []
+    const items = []
 
-    for (const cartItem of normalizedCart) {
-      const menuItem = menuMap.get(String(cartItem.id))
+    for (const c of cart) {
+      const m = menuMap.get(String(c.id))
 
-      if (!menuItem) {
-        return NextResponse.json(
-          { error: `Позиция с id ${cartItem.id} не найдена в menu_items` },
-          { status: 400 }
-        )
+      if (!m) {
+        return NextResponse.json({ error: `Нет позиции ${c.id}` }, { status: 400 })
       }
 
-      if (stopMap.get(String(cartItem.id)) === true) {
-        return NextResponse.json(
-          { error: `Позиция "${menuItem.name}" сейчас на стопе` },
-          { status: 400 }
-        )
+      if (stopMap.get(String(c.id)) === true) {
+        return NextResponse.json({ error: `${m.name} на стопе` }, { status: 400 })
       }
 
-      preparedItems.push({
-        id: menuItem.id,
-        name: menuItem.name,
-        price: menuItem.price,
-        quantity: cartItem.quantity,
-        lineTotal: Number((menuItem.price * cartItem.quantity).toFixed(2)),
+      items.push({
+        id: m.id,
+        price: m.price,
+        quantity: c.quantity,
       })
     }
 
-    const total = Number(
-      preparedItems.reduce((sum, item) => sum + item.lineTotal, 0).toFixed(2)
-    )
-
-    const shortNumber = makeShortNumber()
+    const total = items.reduce((s, i) => s + i.price * i.quantity, 0)
 
     const order = await createOrderRow(supabase, {
       branchId,
-      shortNumber,
+      shortNumber: makeShortNumber(),
       total,
-      customerName,
-      customerPhone,
-      comment,
     })
 
-    await createOrderItems(supabase, order.id, preparedItems)
+    await createOrderItems(supabase, order.id, items)
 
-    return NextResponse.json({
-      ok: true,
-      orderId: order.id,
-      shortNumber: order.short_number ?? order.order_number ?? shortNumber,
-      total,
-      order,
-    })
+    return NextResponse.json({ ok: true, orderId: order.id })
   } catch (e) {
-    console.error('ORDER_ERROR:', e)
-
-    return NextResponse.json(
-      { error: e?.message || 'Ошибка оформления заказа' },
-      { status: 500 }
-    )
+    console.error(e)
+    return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
