@@ -65,6 +65,117 @@ function QtyCtrl({ qty, onInc, onDec, sm }) {
   )
 }
 
+
+// ─── UpsellScreen — экран перед оформлением ──────────────────────────────────
+
+function UpsellScreen({ cart, items, onAddItem, onProceed }) {
+  const byId = new Map(items.map(i=>[i.id,i]))
+
+  // Категории уже в корзине
+  const cartCats = new Set(
+    cart.flatMap(e => {
+      const item = byId.get(e.id)
+      if (!item) return []
+      // Для шаурмы также считаем модификаторы как добавки
+      return [item.category]
+    })
+  )
+
+  // Шаурмы в корзине без добавок (modifiers пустые)
+  const shawarmaWithoutAddons = cart.filter(e => {
+    const item = byId.get(e.id)
+    return item?.category === 'shawarma' && (!e.modifiers || e.modifiers.length === 0)
+  })
+
+  const hasFries   = cartCats.has('fries')
+  const hasSauces  = cartCats.has('sauces')
+  const hasDrinks  = cartCats.has('drinks')
+  const hasFry     = hasFries
+
+  // Строим секции upsell
+  const sections = []
+
+  // 1. Добавки к шаурме (если есть шаурма без добавок)
+  if (shawarmaWithoutAddons.length > 0) {
+    const addons = items.filter(i => i.category === 'shawarma_addons' && Number(i.price) > 0 && !i.coming_soon)
+    if (addons.length) sections.push({ key:'addons', title:'Добавки к шаурме', subtitle:'У вас шаурма без добавок', items: addons.slice(0,6) })
+  }
+
+  // 2. Фритюр (если нет)
+  if (!hasFry) {
+    const fries = items.filter(i => i.category === 'fries' && Number(i.price) > 0 && !i.coming_soon)
+    if (fries.length) sections.push({ key:'fries', title:'Картошка?', subtitle:'Фритюр к вашему заказу', items: fries.slice(0,4) })
+  }
+
+  // 3. Соусы (если есть фри, но нет соуса)
+  if (hasFry && !hasSauces) {
+    const sauces = items.filter(i => i.category === 'sauces' && Number(i.price) > 0 && !i.coming_soon)
+    if (sauces.length) sections.push({ key:'sauces', title:'Соус к картошке?', subtitle:'', items: sauces.slice(0,4) })
+  }
+
+  // 4. Напитки (если нет)
+  if (!hasDrinks) {
+    const drinks = items.filter(i => i.category === 'drinks' && Number(i.price) > 0 && !i.coming_soon)
+    if (drinks.length) sections.push({ key:'drinks', title:'Что-нибудь выпить?', subtitle:'Напитки к заказу', items: drinks.slice(0,4) })
+  }
+
+  const cartIds = new Set(cart.map(e=>e.id))
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',zIndex:75,display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'0 8px 8px',overflowY:'auto'}}>
+      <div style={{width:'100%',maxWidth:680,maxHeight:'92vh',overflow:'auto',background:'linear-gradient(160deg,#0d1f4e 0%,#07122e 100%)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:20,padding:18}}>
+
+        {/* Заголовок */}
+        <div style={{marginBottom:20}}>
+          <div style={{fontFamily:"'Unbounded',sans-serif",fontWeight:900,fontSize:20,marginBottom:4}}>
+            Не забыли ничего? 🤔
+          </div>
+          <div style={{color:'#8fa3cc',fontSize:13}}>Добавьте к заказу или переходите к оформлению</div>
+        </div>
+
+        {/* Секции */}
+        {sections.map(section => (
+          <div key={section.key} style={{marginBottom:20}}>
+            <div style={{fontFamily:"'Unbounded',sans-serif",fontWeight:700,fontSize:14,marginBottom:4}}>{section.title}</div>
+            {section.subtitle && <div style={{color:'#8fa3cc',fontSize:12,marginBottom:10}}>{section.subtitle}</div>}
+            <div style={{display:'grid',gap:8}}>
+              {section.items.map(item => {
+                const inCart = cartIds.has(item.id)
+                return (
+                  <div key={item.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'11px 14px',borderRadius:14,background:inCart?'rgba(34,197,94,0.08)':'rgba(255,255,255,0.04)',border:inCart?'1px solid rgba(34,197,94,0.3)':'1px solid rgba(255,255,255,0.07)'}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14,color:'#f0f4ff'}}>{item.name}</div>
+                      <div style={{color:'#8fa3cc',fontSize:13,marginTop:2}}>{fmt(item.price)}</div>
+                    </div>
+                    {inCart
+                      ? <span style={{fontSize:13,color:'#22c55e',fontWeight:700}}>✓ В корзине</span>
+                      : <button onClick={()=>onAddItem(item)} style={{...btnG,padding:'9px 16px',fontSize:14,borderRadius:10}}>+ Добавить</button>
+                    }
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+
+        {/* Если нечего предлагать */}
+        {sections.length === 0 && (
+          <div style={{textAlign:'center',padding:'24px 0',color:'#8fa3cc',fontSize:14}}>
+            Отличный заказ! Всё уже есть 🎉
+          </div>
+        )}
+
+        {/* Кнопка оформления */}
+        <div style={{borderTop:'1px solid rgba(255,255,255,0.07)',paddingTop:16,marginTop:4}}>
+          <button onClick={onProceed} style={{...btnY,width:'100%',padding:'15px',fontSize:16,borderRadius:14}}>
+            Перейти к оформлению →
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── ModifierModal — выбор добавок к шаурме ───────────────────────────────────
 
 function ModifierModal({ item, allAddons, onConfirm, onSkip }) {
@@ -398,6 +509,7 @@ export default function Page() {
   const [openMap,        setOpenMap]        = useState({shawarma:true,burgers:true,fries:true})
   const [modifierTarget, setModifierTarget] = useState(null) // item для которого открыта модалка добавок
   const [checkoutOpen,   setCheckoutOpen]   = useState(false)
+  const [upsellOpen,     setUpsellOpen]     = useState(false)
   const [successOrder,   setSuccessOrder]   = useState(null)
   const [previewNum,     setPreviewNum]     = useState('????')
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -519,7 +631,7 @@ export default function Page() {
   function toggle(cat)      { setOpenMap(prev=>({...prev,[cat]:!prev[cat]})) }
 
   function handleSuccess(order) {
-    setCart([]); setCheckoutOpen(false); setSuccessOrder(order)
+    setCart([]); setCheckoutOpen(false); setUpsellOpen(false); setSuccessOrder(order)
   }
 
   // ─── Экран успеха ────────────────────────────────────────────────────────────
@@ -597,10 +709,27 @@ export default function Page() {
             </div>
             <div style={{color:'#8fa3cc',fontSize:13}}>{fmt(cartDetails.total)}</div>
           </div>
-          <button onClick={()=>setCheckoutOpen(true)} style={{...btnY,marginLeft:'auto',padding:'12px 20px',fontSize:15}}>
+          <button onClick={()=>setUpsellOpen(true)} style={{...btnY,marginLeft:'auto',padding:'12px 20px',fontSize:15}}>
             Оформить заказ →
           </button>
         </div>
+      )}
+
+      {/* Upsell экран */}
+      {upsellOpen && !checkoutOpen && (
+        <UpsellScreen
+          cart={cart}
+          items={items}
+          onAddItem={item => {
+            const cartKey = makeCartKey(item.id, [])
+            setCart(prev => {
+              const ex = prev.find(e=>e.cartKey===cartKey)
+              if (ex) return prev.map(e=>e.cartKey===cartKey?{...e,qty:e.qty+1}:e)
+              return [...prev,{cartKey,id:item.id,qty:1,modifiers:[]}]
+            })
+          }}
+          onProceed={() => { setUpsellOpen(false); setCheckoutOpen(true) }}
+        />
       )}
 
       {/* Модалка добавок */}
