@@ -15,15 +15,16 @@ const LABELS = {
   expired: 'Истёк',
 }
 
-
 const BRANCH_LABELS = {
   'nv-fr-002': 'На Виражах — Аэропорт',
   'nv-sh-001': 'На Виражах — Конечная',
   '1': 'На Виражах — Аэропорт',
 }
 
-function normalizeBranchName(branchId, branchRow) {
-  return branchRow?.name || BRANCH_LABELS[String(branchId)] || String(branchId || '')
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || '').trim()
+  )
 }
 
 function OrderPageInner() {
@@ -36,13 +37,15 @@ function OrderPageInner() {
   const [loading, setLoading] = useState(false)
 
   async function search(forcedNumber) {
-    const searchNumber = String(forcedNumber ?? number).trim()
+    const rawNumber = String(forcedNumber ?? number).trim()
+    const normalized = rawNumber.replace(/^0+/, '')
+
     setError('')
     setOrder(null)
     setItems([])
     setBranchName('')
 
-    if (!searchNumber) {
+    if (!rawNumber) {
       setError('Введите номер заказа')
       return
     }
@@ -54,61 +57,94 @@ function OrderPageInner() {
 
     setLoading(true)
 
-    let orderData = null
-    let orderError = null
+    try {
+      const candidates = []
 
-    const byShort = await supabase
-      .from('orders')
-      .select('*')
-      .eq('short_number', searchNumber)
-      .maybeSingle()
+      const shortCandidates = [rawNumber]
+      if (normalized && normalized !== rawNumber) shortCandidates.push(normalized)
 
-    orderData = byShort.data
-    orderError = byShort.error
-
-    if (!orderData && !orderError) {
-      const byOrderNumber = await supabase
+      const { data: byShort, error: byShortError } = await supabase
         .from('orders')
         .select('*')
-        .eq('order_number', searchNumber)
-        .maybeSingle()
-      orderData = byOrderNumber.data
-      orderError = byOrderNumber.error
-    }
+        .in('short_number', shortCandidates)
+        .order('created_at', { ascending: false })
 
-    if (!orderData && !orderError) {
-      const byId = await supabase
-        .from('orders')
-        .select('*')
-        .eq('id', searchNumber)
-        .maybeSingle()
-      orderData = byId.data
-      orderError = byId.error
-    }
+      if (byShortError) throw byShortError
+      if (Array.isArray(byShort)) candidates.push(...byShort)
 
-    if (orderError || !orderData) {
-      setLoading(false)
+      if (!candidates.length) {
+        const orderNumberCandidates = [rawNumber]
+        if (normalized && normalized !== rawNumber) orderNumberCandidates.push(normalized)
+
+        const { data: byOrderNumber, error: byOrderNumberError } = await supabase
+          .from('orders')
+          .select('*')
+          .in('order_number', orderNumberCandidates)
+          .order('created_at', { ascending: false })
+
+        if (byOrderNumberError) throw byOrderNumberError
+        if (Array.isArray(byOrderNumber)) candidates.push(...byOrderNumber)
+      }
+
+      if (!candidates.length && /^\d+$/.test(rawNumber)) {
+        const { data: bySuffix, error: bySuffixError } = await supabase
+          .from('orders')
+          .select('*')
+          .ilike('order_number', `%${rawNumber}`)
+          .order('created_at', { ascending: false })
+
+        if (bySuffixError) throw bySuffixError
+        if (Array.isArray(bySuffix)) candidates.push(...bySuffix)
+      }
+
+      if (!candidates.length && isUuid(rawNumber)) {
+        const { data: byId, error: byIdError } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('id', rawNumber)
+          .limit(1)
+
+        if (byIdError) throw byIdError
+        if (Array.isArray(byId)) candidates.push(...byId)
+      }
+
+      const seen = new Set()
+      const uniqueCandidates = candidates.filter((row) => {
+        if (!row?.id || seen.has(row.id)) return false
+        seen.add(row.id)
+        return true
+      })
+
+      const orderData = uniqueCandidates[0]
+      if (!orderData) {
+        setError('Заказ не найден')
+        setLoading(false)
+        return
+      }
+
+      const [{ data: orderItems, error: itemsError }, { data: branchRow }] = await Promise.all([
+        supabase
+          .from('order_items')
+          .select('*')
+          .eq('order_id', orderData.id)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('branches')
+          .select('id, name')
+          .eq('id', orderData.branch_id)
+          .maybeSingle(),
+      ])
+
+      if (itemsError) throw itemsError
+
+      setOrder(orderData)
+      setItems(orderItems || [])
+      setBranchName(branchRow?.name || BRANCH_LABELS[orderData.branch_id] || orderData.branch_id)
+    } catch {
       setError('Заказ не найден')
-      return
+    } finally {
+      setLoading(false)
     }
-
-    const [{ data: orderItems }, { data: branchRow }] = await Promise.all([
-      supabase
-        .from('order_items')
-        .select('*')
-        .eq('order_id', orderData.id)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('branches')
-        .select('id, name')
-        .eq('id', orderData.branch_id)
-        .maybeSingle(),
-    ])
-
-    setOrder(orderData)
-    setItems(orderItems || [])
-    setBranchName(normalizeBranchName(orderData.branch_id, branchRow))
-    setLoading(false)
   }
 
   useEffect(() => {
@@ -121,6 +157,7 @@ function OrderPageInner() {
 
   useEffect(() => {
     if (!supabase || !order?.id) return
+
     const channel = supabase
       .channel('order-status-' + order.id)
       .on(
@@ -134,10 +171,11 @@ function OrderPageInner() {
             .select('name')
             .eq('id', updated.branch_id)
             .maybeSingle()
-          setBranchName(normalizeBranchName(updated.branch_id, branchRow))
+          setBranchName(branchRow?.name || BRANCH_LABELS[updated.branch_id] || updated.branch_id)
         }
       )
       .subscribe()
+
     return () => {
       supabase.removeChannel(channel)
     }
@@ -165,19 +203,34 @@ function OrderPageInner() {
         />
         <button
           onClick={() => search()}
-          style={{ padding: '14px 18px', borderRadius: 12, border: 0, background: '#f4a01d', color: '#111', fontWeight: 800 }}
+          style={{
+            padding: '14px 18px',
+            borderRadius: 12,
+            border: 0,
+            background: '#f4a01d',
+            color: '#111',
+            fontWeight: 800,
+          }}
         >
           Найти
         </button>
       </div>
+
       {loading ? <div style={{ color: '#c4d1f6', marginBottom: 12 }}>Ищем заказ...</div> : null}
       {error ? <div style={{ color: '#ffb4b4', marginBottom: 12 }}>{error}</div> : null}
 
       {order ? (
-        <div style={{ background: '#0b1b45', borderRadius: 18, padding: 16, border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div
+          style={{
+            background: '#0b1b45',
+            borderRadius: 18,
+            padding: 16,
+            border: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
           <div style={{ fontSize: 42, fontWeight: 900 }}>{order.short_number || order.order_number || order.id}</div>
           <div style={{ color: '#d9e4ff', marginTop: 8 }}>Статус: {label}</div>
-          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Точка: {branchName || normalizeBranchName(order.branch_id)}</div>
+          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Точка: {branchName || BRANCH_LABELS[order.branch_id] || order.branch_id}</div>
           <div style={{ color: '#d9e4ff' }}>Сумма: {order.total} ₽</div>
 
           {items.length ? (
