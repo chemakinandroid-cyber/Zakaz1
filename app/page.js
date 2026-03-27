@@ -1,16 +1,38 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { BRANCHES, BRANCH_CONTACTS, CATEGORY_LABELS, FALLBACK_MENU } from '@/lib/menuFallback'
+
+const BRANCHES = [
+  { id: 'nv-fr-002', name: 'На Виражах — Аэропорт' },
+  { id: 'nv-sh-001', name: 'На Виражах — Конечная' },
+]
+
+const BRANCH_PHONES = {
+  'nv-fr-002': '+79024524222',
+  '1': '+79024524222',
+  'nv-sh-001': '+79085932688',
+}
+
+const CATEGORY_LABELS = {
+  shawarma: 'Шаурма',
+  shawarma_addons: 'Добавки к шаурме',
+  burgers: 'Бургеры',
+  hotdogs: 'Хот-доги',
+  shashlik: 'Шашлык',
+  quesadilla: 'Кесадилья',
+  fries: 'Фритюр',
+  sauces: 'Соусы',
+  drinks: 'Напитки',
+}
 
 const CATEGORY_ORDER = [
   'shawarma',
+  'shawarma_addons',
   'burgers',
   'hotdogs',
   'shashlik',
   'quesadilla',
-  'fryer',
+  'fries',
   'sauces',
   'drinks',
 ]
@@ -29,49 +51,31 @@ function formatPrice(value) {
   return `${Number(value || 0)} ₽`
 }
 
-function normalizeText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/["'`«»]/g, '')
-    .replace(/[—–-]/g, ' ')
-    .replace(/ё/g, 'е')
-    .replace(/\s+/g, ' ')
-    .trim()
+function formatShortNumber(value) {
+  const num = Number(String(value || '').replace(/\D/g, ''))
+  if (!Number.isFinite(num) || num <= 0) return '0001'
+  return String(num).padStart(4, '0')
 }
 
-function normalizeCategory(category, name = '') {
-  const raw = normalizeText(category)
-  const rawName = normalizeText(name)
-
-  if (raw === 'fryer' || raw === 'fries' || raw.includes('фрит')) return 'fryer'
-  if (raw === 'shawarma' || raw.includes('шаур')) return 'shawarma'
-  if (raw.includes('burger') || raw.includes('бург')) return 'burgers'
-  if (raw.includes('hot') || raw.includes('хот') || raw.includes('дог')) return 'hotdogs'
-  if (raw.includes('sauce') || raw.includes('соус')) return 'sauces'
-  if (raw.includes('drink') || raw.includes('напит')) return 'drinks'
-  if (raw.includes('shash') || raw.includes('шаш')) return 'shashlik'
-  if (raw.includes('ques') || raw.includes('кесад')) return 'quesadilla'
-  if (raw.includes('addon') || raw.includes('добав')) return 'shawarma_addons'
-
-  if (rawName.includes('шаурма')) return 'shawarma'
-  if (rawName.includes('бургер')) return 'burgers'
-  if (rawName.includes('хот') || rawName.includes('датский') || rawName.includes('австрийский')) return 'hotdogs'
-  if (rawName.includes('шашлык')) return 'shashlik'
-  if (rawName.includes('кесад')) return 'quesadilla'
-  if (rawName.includes('соус')) return 'sauces'
-  if (rawName.includes('чай') || rawName.includes('кофе') || rawName.includes('морс') || rawName.includes('лимонад')) return 'drinks'
-
-  return raw || 'other'
+function normalizeCategory(category) {
+  const raw = String(category || '').trim().toLowerCase()
+  if (!raw) return 'other'
+  if (raw === 'fryer') return 'fries'
+  if (raw.includes('добав') && raw.includes('шаур')) return 'shawarma_addons'
+  if (raw.includes('shawarma') && raw.includes('addon')) return 'shawarma_addons'
+  return raw
 }
 
-function inferVariant(item) {
-  const own = normalizeText(item?.variant)
-  const text = `${normalizeText(item?.name)} ${normalizeText(item?.description)}`
-  if (own === 'chicken' || own.includes('кур')) return 'chicken'
-  if (own === 'pork' || own.includes('свин')) return 'pork'
-  if (text.includes('кур')) return 'chicken'
-  if (text.includes('свин')) return 'pork'
-  return ''
+function isShawarmaAddon(item) {
+  const category = normalizeCategory(item?.category)
+  const name = String(item?.name || '').toLowerCase()
+  const description = String(item?.description || '').toLowerCase()
+
+  return (
+    category === 'shawarma_addons' ||
+    (name.includes('добав') && name.includes('шаур')) ||
+    (description.includes('добав') && description.includes('шаур'))
+  )
 }
 
 function matchesBranch(item, branchId) {
@@ -79,99 +83,55 @@ function matchesBranch(item, branchId) {
   return item.branch_ids.includes(branchId)
 }
 
-function itemKey(item) {
-  return [
-    normalizeCategory(item.category, item.name),
-    normalizeText(item.name),
-    inferVariant(item),
-    Number(item.price || 0),
-  ].join('|')
-}
-
-function chooseBetterItem(a, b) {
-  const score = (item) => {
-    let total = 0
-    if (item.description) total += Math.min(String(item.description).length, 300)
-    if (Array.isArray(item.branch_ids) && item.branch_ids.length) total += 20
-    if (!item.coming_soon) total += 10
-    if (item.category === 'shawarma_addons') total += 5
-    return total
-  }
-  return score(b) > score(a) ? b : a
-}
-
-function dedupeItems(items) {
-  const map = new Map()
-  for (const item of items) {
-    const key = itemKey(item)
-    const existing = map.get(key)
-    map.set(key, existing ? chooseBetterItem(existing, item) : item)
-  }
-  return Array.from(map.values())
-}
-
-function mergeWithFallback(dbItems) {
-  const fallbackMap = new Map(FALLBACK_MENU.map((item) => [itemKey(item), item]))
-
-  const normalizedDb = dbItems.map((item) => {
-    const normalized = {
-      ...item,
-      category: normalizeCategory(item.category, item.name),
-      variant: inferVariant(item),
-    }
-    const fb = fallbackMap.get(itemKey(normalized))
-    return {
-      ...fb,
-      ...normalized,
-      category: normalized.category || fb?.category || 'other',
-      variant: normalized.variant || fb?.variant || '',
-      description: normalized.description || fb?.description || '',
-      price: Number(normalized.price ?? fb?.price ?? 0),
-      branch_ids: Array.isArray(normalized.branch_ids) ? normalized.branch_ids : fb?.branch_ids,
-    }
-  })
-
-  const haveAddonCategory = normalizedDb.some((item) => item.category === 'shawarma_addons')
-  const combined = haveAddonCategory ? normalizedDb : [...normalizedDb, ...FALLBACK_MENU.filter((item) => item.category === 'shawarma_addons')]
-
-  return dedupeItems(combined)
-}
-
-function sortItems(items) {
-  return [...items].sort((a, b) => {
-    const aCategory = CATEGORY_ORDER.indexOf(normalizeCategory(a.category, a.name))
-    const bCategory = CATEGORY_ORDER.indexOf(normalizeCategory(b.category, b.name))
-    if (aCategory !== bCategory) return (aCategory === -1 ? 99 : aCategory) - (bCategory === -1 ? 99 : bCategory)
-    return normalizeText(a.name).localeCompare(normalizeText(b.name), 'ru')
-  })
-}
-
 function buildSuggestions(sourceItem, allItems, cartIds) {
-  const sourceCategory = normalizeCategory(sourceItem.category, sourceItem.name)
-  const sourceVariant = inferVariant(sourceItem)
+  const normalizedSourceCategory = normalizeCategory(sourceItem.category)
+  const sourceVariant = sourceItem.variant || null
 
-  let candidates = []
+  let pool = []
 
-  if (sourceCategory === 'shawarma') {
-    candidates = allItems.filter((item) => normalizeCategory(item.category, item.name) === 'shawarma_addons')
+  if (normalizedSourceCategory === 'shawarma') {
+    pool = allItems.filter((item) => isShawarmaAddon(item))
 
-    if (sourceVariant === 'chicken') {
-      candidates = candidates.filter((item) => inferVariant(item) !== 'pork')
+    if (!pool.length) {
+      pool = allItems.filter((item) => {
+        const normalizedItemCategory = normalizeCategory(item.category)
+        return ['fries', 'sauces', 'drinks'].includes(normalizedItemCategory)
+      })
     }
-    if (sourceVariant === 'pork') {
-      candidates = candidates.filter((item) => inferVariant(item) !== 'chicken')
-    }
-  } else if (sourceCategory === 'burgers' || sourceCategory === 'hotdogs') {
-    candidates = allItems.filter((item) => ['fryer', 'sauces', 'drinks'].includes(normalizeCategory(item.category, item.name)))
-  } else if (sourceCategory === 'fryer') {
-    candidates = allItems.filter((item) => ['sauces', 'drinks'].includes(normalizeCategory(item.category, item.name)))
   } else {
-    candidates = allItems.filter((item) => ['sauces', 'drinks'].includes(normalizeCategory(item.category, item.name)))
+    let allowedCategories = []
+    if (normalizedSourceCategory === 'burgers' || normalizedSourceCategory === 'hotdogs') {
+      allowedCategories = ['fries', 'sauces', 'drinks']
+    } else if (normalizedSourceCategory === 'fries') {
+      allowedCategories = ['sauces', 'drinks']
+    } else {
+      allowedCategories = ['drinks', 'sauces']
+    }
+
+    pool = allItems.filter((item) => allowedCategories.includes(normalizeCategory(item.category)))
   }
 
-  return sortItems(
-    candidates.filter((item) => item.id !== sourceItem.id && !cartIds.has(item.id) && Number(item.price || 0) > 0)
-  ).slice(0, 8)
+  const suggestions = pool.filter((item) => {
+    if (item.id === sourceItem.id) return false
+    if (cartIds.has(item.id)) return false
+    if (Number(item.price) <= 0) return false
+
+    if (sourceVariant === 'chicken' && item.variant === 'pork') return false
+    if (sourceVariant === 'pork' && item.variant === 'chicken') return false
+
+    return true
+  })
+
+  const categoryPriority = { shawarma_addons: 1, fries: 2, sauces: 3, drinks: 4 }
+
+  return suggestions
+    .sort((a, b) => {
+      const ca = categoryPriority[normalizeCategory(a.category)] || 99
+      const cb = categoryPriority[normalizeCategory(b.category)] || 99
+      if (ca !== cb) return ca - cb
+      return Number(a.price || 0) - Number(b.price || 0)
+    })
+    .slice(0, 6)
 }
 
 function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
@@ -208,25 +168,85 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
       </div>
 
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            alignItems: 'flex-start',
+          }}
+        >
           <div style={{ fontWeight: 700, fontSize: 19, lineHeight: 1.2 }}>{item.name}</div>
-          <div style={{ color: isComingSoon ? '#9bb0e5' : '#ffb347', fontWeight: 800, fontSize: 22, whiteSpace: 'nowrap' }}>
+
+          <div
+            style={{
+              color: isComingSoon ? '#9bb0e5' : '#ffb347',
+              fontWeight: 800,
+              fontSize: 22,
+              whiteSpace: 'nowrap',
+            }}
+          >
             {isComingSoon ? '—' : formatPrice(item.price)}
           </div>
         </div>
 
-        <div style={{ marginTop: 8, color: '#d9e4ff', fontSize: 14, lineHeight: 1.45 }}>
+        <div
+          style={{
+            marginTop: 8,
+            color: '#d9e4ff',
+            fontSize: 14,
+            lineHeight: 1.45,
+          }}
+        >
           {item.description || 'Описание скоро добавим'}
         </div>
 
-        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 12, padding: '6px 10px', borderRadius: 999, background: 'rgba(255,179,71,0.15)', color: '#ffd08a' }}>
-            {CATEGORY_LABELS[normalizeCategory(item.category, item.name)] || item.category}
+        <div
+          style={{
+            marginTop: 12,
+            display: 'flex',
+            gap: 8,
+            flexWrap: 'wrap',
+            alignItems: 'center',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 12,
+              padding: '6px 10px',
+              borderRadius: 999,
+              background: 'rgba(255,179,71,0.15)',
+              color: '#ffd08a',
+            }}
+          >
+            {CATEGORY_LABELS[normalizeCategory(item.category)] || item.category}
           </span>
 
-          {inferVariant(item) ? (
-            <span style={{ fontSize: 12, padding: '6px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', color: '#d9e4ff' }}>
-              {inferVariant(item) === 'chicken' ? 'Курица' : inferVariant(item) === 'pork' ? 'Свинина' : inferVariant(item)}
+          {item.variant ? (
+            <span
+              style={{
+                fontSize: 12,
+                padding: '6px 10px',
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.08)',
+                color: '#d9e4ff',
+              }}
+            >
+              {item.variant === 'chicken' ? 'Курица' : item.variant === 'pork' ? 'Свинина' : item.variant}
+            </span>
+          ) : null}
+
+          {isComingSoon ? (
+            <span
+              style={{
+                fontSize: 12,
+                padding: '6px 10px',
+                borderRadius: 999,
+                background: 'rgba(155,176,229,0.15)',
+                color: '#9bb0e5',
+              }}
+            >
+              Скоро в продаже
             </span>
           ) : null}
         </div>
@@ -253,12 +273,52 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
           </button>
 
           {inCart ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '8px 10px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 12,
+                padding: '8px 10px',
+              }}
+            >
               <div style={{ color: '#d9e4ff', fontSize: 13 }}>Количество в корзине</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <button onClick={() => onDecrease(item.id)} style={{ width: 34, height: 34, borderRadius: 10, border: 0, background: '#1f335f', color: '#fff', fontSize: 22, cursor: 'pointer' }}>−</button>
+                <button
+                  onClick={() => onDecrease(item.id)}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 10,
+                    border: 0,
+                    background: '#1f335f',
+                    color: '#fff',
+                    fontSize: 22,
+                    cursor: 'pointer',
+                  }}
+                >
+                  −
+                </button>
                 <div style={{ minWidth: 20, textAlign: 'center', fontWeight: 800, fontSize: 18 }}>{quantity}</div>
-                <button onClick={() => onIncrease(item.id)} style={{ width: 34, height: 34, borderRadius: 10, border: 0, background: '#22c55e', color: '#071432', fontSize: 22, cursor: 'pointer', fontWeight: 800 }}>+</button>
+                <button
+                  onClick={() => onIncrease(item.id)}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 10,
+                    border: 0,
+                    background: '#22c55e',
+                    color: '#071432',
+                    fontSize: 22,
+                    cursor: 'pointer',
+                    fontWeight: 800,
+                  }}
+                >
+                  +
+                </button>
               </div>
             </div>
           ) : null}
@@ -271,14 +331,35 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
 function AccordionSection({ title, items, open, onToggle, getQuantity, onAdd, onIncrease, onDecrease }) {
   return (
     <section style={{ marginBottom: 16 }}>
-      <button onClick={onToggle} style={{ width: '100%', textAlign: 'left', background: '#f4a01d', color: '#111', border: 0, borderRadius: 14, padding: '14px 16px', fontWeight: 800, fontSize: 18, cursor: 'pointer' }}>
+      <button
+        onClick={onToggle}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          background: '#f4a01d',
+          color: '#111',
+          border: 0,
+          borderRadius: 14,
+          padding: '14px 16px',
+          fontWeight: 800,
+          fontSize: 18,
+          cursor: 'pointer',
+        }}
+      >
         {title} {open ? '−' : '+'}
       </button>
 
       {open ? (
         <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
           {items.map((item) => (
-            <ProductCard key={item.id} item={item} quantity={getQuantity(item.id)} onAdd={onAdd} onIncrease={onIncrease} onDecrease={onDecrease} />
+            <ProductCard
+              key={item.id}
+              item={item}
+              quantity={getQuantity(item.id)}
+              onAdd={onAdd}
+              onIncrease={onIncrease}
+              onDecrease={onDecrease}
+            />
           ))}
         </div>
       ) : null}
@@ -293,7 +374,6 @@ export default function Page() {
   const [errorText, setErrorText] = useState('')
   const [cart, setCart] = useState([])
   const [checkoutOpen, setCheckoutOpen] = useState(false)
-  const [previewNumber, setPreviewNumber] = useState('')
   const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const [suggestionsSource, setSuggestionsSource] = useState(null)
   const [suggestions, setSuggestions] = useState([])
@@ -302,15 +382,35 @@ export default function Page() {
   const [comment, setComment] = useState('')
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [openMap, setOpenMap] = useState({ shawarma: true, burgers: true, hotdogs: true, shashlik: false, quesadilla: false, fryer: true, sauces: false, drinks: false })
+  const [previewOrderNumber, setPreviewOrderNumber] = useState('0001')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [openMap, setOpenMap] = useState({
+    shawarma: true,
+    shawarma_addons: true,
+    burgers: true,
+    hotdogs: true,
+    shashlik: false,
+    quesadilla: false,
+    fries: true,
+    sauces: false,
+    drinks: false,
+  })
 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(CART_STORAGE_KEY)
       if (!raw) return
       const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed?.items)) setCart(parsed.items)
-      if (BRANCHES.some((b) => b.id === parsed?.branch)) setBranch(parsed.branch)
+
+      if (Array.isArray(parsed?.items)) {
+        setCart(parsed.items)
+      }
+
+      const rawSavedBranch = parsed?.branch
+      const savedBranch = typeof rawSavedBranch === 'string' ? rawSavedBranch : BRANCHES[0].id
+      if (BRANCHES.some((b) => b.id === savedBranch)) {
+        setBranch(savedBranch)
+      }
     } catch {}
   }, [])
 
@@ -321,51 +421,58 @@ export default function Page() {
   }, [branch, cart])
 
   useEffect(() => {
-    let ignore = false
+    let active = true
 
     async function loadMenu() {
       setLoading(true)
       setErrorText('')
 
-      let loadedItems = []
-      let stopIds = new Set()
+      const { createClient } = await import('@supabase/supabase-js')
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-      if (supabase) {
-        const [{ data: menuData, error: menuError }, { data: stopData, error: stopError }] = await Promise.all([
-          supabase.from('menu_items').select('*').order('name', { ascending: true }),
-          supabase.from('stop_list').select('menu_item_id, is_stopped').eq('branch_id', branch),
-        ])
-
-        if (!ignore) {
-          if (menuError) setErrorText('Не удалось загрузить меню из базы. Показано резервное меню.')
-          if (stopError) console.error(stopError)
-          loadedItems = Array.isArray(menuData) ? menuData : []
-          stopIds = new Set((stopData || []).filter((row) => row.is_stopped).map((row) => row.menu_item_id))
-        }
-      } else {
-        setErrorText('Supabase не подключен. Показано резервное меню.')
+      if (!url || !key) {
+        if (!active) return
+        setItems([])
+        setErrorText('Supabase не подключен')
+        setLoading(false)
+        return
       }
 
-      if (ignore) return
+      const supabase = createClient(url, key)
 
-      const source = loadedItems.length ? mergeWithFallback(loadedItems) : FALLBACK_MENU
-      const filtered = dedupeItems(source)
+      const { data: menuData, error: menuError } = await supabase.from('menu_items').select('*').order('name', { ascending: true })
+
+      if (!active) return
+      if (menuError) {
+        setItems([])
+        setErrorText('Не удалось загрузить меню')
+        setLoading(false)
+        return
+      }
+
+      const { data: stopData, error: stopError } = await supabase
+        .from('stop_list')
+        .select('menu_item_id, is_stopped')
+        .eq('branch_id', branch)
+
+      if (!active) return
+
+      const stoppedIds = new Set((stopData || []).filter((row) => row.is_stopped).map((row) => row.menu_item_id))
+      if (stopError) console.error(stopError)
+
+      const filteredMenu = (menuData || [])
         .filter((item) => matchesBranch(item, branch))
-        .filter((item) => !stopIds.has(item.id))
-        .map((item) => ({
-          ...item,
-          category: normalizeCategory(item.category, item.name),
-          variant: inferVariant(item),
-          price: Number(item.price || 0),
-        }))
+        .filter((item) => !stoppedIds.has(item.id))
+        .map((item) => ({ ...item, category: normalizeCategory(item.category) }))
 
-      setItems(sortItems(filtered))
+      setItems(filteredMenu)
       setLoading(false)
     }
 
     loadMenu()
     return () => {
-      ignore = true
+      active = false
     }
   }, [branch])
 
@@ -375,49 +482,84 @@ export default function Page() {
   }, [items])
 
   useEffect(() => {
-    let ignore = false
+    if (!checkoutOpen) return
+    let active = true
 
-    async function loadPreviewNumber() {
-      if (!checkoutOpen) return
-      if (!supabase) {
-        setPreviewNumber('')
-        return
+    async function loadPreviewOrderNumber() {
+      setPreviewLoading(true)
+      try {
+        const { createClient } = await import('@supabase/supabase-js')
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        if (!url || !key) {
+          if (active) setPreviewOrderNumber('0001')
+          return
+        }
+
+        const supabase = createClient(url, key)
+        let nextNumber = null
+
+        const { data: counterRow } = await supabase
+          .from('order_counters')
+          .select('*')
+          .eq('branch_id', branch)
+          .limit(1)
+          .maybeSingle()
+
+        if (counterRow) {
+          const candidates = [
+            counterRow.current_number,
+            counterRow.current_value,
+            counterRow.last_number,
+            counterRow.counter,
+            counterRow.value,
+            counterRow.number,
+          ]
+          const numeric = candidates
+            .map((v) => Number(v))
+            .find((v) => Number.isFinite(v) && v >= 0)
+          if (Number.isFinite(numeric)) {
+            nextNumber = numeric + 1
+          }
+        }
+
+        if (!Number.isFinite(nextNumber)) {
+          const { data: ordersRows } = await supabase
+            .from('orders')
+            .select('short_number, created_at')
+            .eq('branch_id', branch)
+            .order('created_at', { ascending: false })
+            .limit(50)
+
+          const maxShort = (ordersRows || []).reduce((max, row) => {
+            const num = Number(String(row?.short_number || '').replace(/\D/g, ''))
+            return Number.isFinite(num) && num > max ? num : max
+          }, 0)
+
+          nextNumber = maxShort + 1
+        }
+
+        if (active) {
+          setPreviewOrderNumber(formatShortNumber(nextNumber || 1))
+        }
+      } catch {
+        if (active) setPreviewOrderNumber('0001')
+      } finally {
+        if (active) setPreviewLoading(false)
       }
-
-      const { data, error } = await supabase
-        .from('orders')
-        .select('short_number, created_at')
-        .eq('branch_id', branch)
-        .order('created_at', { ascending: false })
-        .limit(20)
-
-      if (ignore) return
-      if (error || !Array.isArray(data)) {
-        setPreviewNumber('')
-        return
-      }
-
-      let maxNum = 0
-      for (const row of data) {
-        const num = Number(String(row.short_number || '').replace(/\D/g, ''))
-        if (num > maxNum) maxNum = num
-      }
-      const next = maxNum > 0 ? String(maxNum + 1).padStart(4, '0') : ''
-      setPreviewNumber(next)
     }
 
-    loadPreviewNumber()
+    loadPreviewOrderNumber()
     return () => {
-      ignore = true
+      active = false
     }
   }, [checkoutOpen, branch])
 
   const groupedItems = useMemo(() => {
     const grouped = {}
-    for (const key of CATEGORY_ORDER) grouped[key] = []
+    for (const category of CATEGORY_ORDER) grouped[category] = []
     for (const item of items) {
-      const category = normalizeCategory(item.category, item.name)
-      if (category === 'shawarma_addons') continue
+      const category = normalizeCategory(item.category || 'other')
       if (!grouped[category]) grouped[category] = []
       grouped[category].push(item)
     }
@@ -428,16 +570,20 @@ export default function Page() {
     const byId = new Map(items.map((item) => [item.id, item]))
     let count = 0
     let total = 0
-    const normalized = cart.map((entry) => {
-      const source = byId.get(entry.id)
-      if (!source) return null
-      const quantity = Number(entry.quantity || 0)
-      if (quantity <= 0) return null
-      const lineTotal = Number(source.price || 0) * quantity
-      count += quantity
-      total += lineTotal
-      return { ...source, quantity, lineTotal }
-    }).filter(Boolean)
+
+    const normalized = cart
+      .map((entry) => {
+        const source = byId.get(entry.id)
+        if (!source) return null
+        const quantity = Number(entry.quantity || 0)
+        if (quantity <= 0) return null
+        const lineTotal = Number(source.price || 0) * quantity
+        count += quantity
+        total += lineTotal
+        return { ...source, quantity, lineTotal }
+      })
+      .filter(Boolean)
+
     return { items: normalized, count, total }
   }, [cart, items])
 
@@ -455,29 +601,33 @@ export default function Page() {
   }
 
   function addToCart(item, options = { openSuggestions: true }) {
-    let nextCart = []
     setCart((prev) => {
       const existing = prev.find((entry) => entry.id === item.id)
-      nextCart = existing
-        ? prev.map((entry) => entry.id === item.id ? { ...entry, quantity: entry.quantity + 1 } : entry)
+      const nextCart = existing
+        ? prev.map((entry) => (entry.id === item.id ? { ...entry, quantity: entry.quantity + 1 } : entry))
         : [...prev, { id: item.id, quantity: 1 }]
+
+      if (options.openSuggestions) {
+        setTimeout(() => openSuggestionsFor(item, nextCart), 0)
+      }
+
       return nextCart
     })
-
-    if (options.openSuggestions) {
-      setTimeout(() => openSuggestionsFor(item, nextCart.length ? nextCart : [...cart, { id: item.id, quantity: 1 }]), 0)
-    }
   }
 
   function increaseQuantity(itemId) {
-    setCart((prev) => prev.map((entry) => entry.id === itemId ? { ...entry, quantity: entry.quantity + 1 } : entry))
+    setCart((prev) => prev.map((entry) => (entry.id === itemId ? { ...entry, quantity: entry.quantity + 1 } : entry)))
   }
 
   function decreaseQuantity(itemId) {
-    setCart((prev) => prev.map((entry) => entry.id === itemId ? { ...entry, quantity: entry.quantity - 1 } : entry).filter((entry) => entry.quantity > 0))
+    setCart((prev) =>
+      prev
+        .map((entry) => (entry.id === itemId ? { ...entry, quantity: entry.quantity - 1 } : entry))
+        .filter((entry) => entry.quantity > 0)
+    )
   }
 
-  function removeItem(itemId) {
+  function removeFromCart(itemId) {
     setCart((prev) => prev.filter((entry) => entry.id !== itemId))
   }
 
@@ -517,11 +667,17 @@ export default function Page() {
       setCustomerName('')
       setCustomerPhone('')
       setComment('')
-      setPreviewNumber('')
-      try { window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ branch, items: [] })) } catch {}
+      setPreviewOrderNumber('0001')
+      try {
+        window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ branch, items: [] }))
+      } catch {}
 
       const orderNumber = result?.short_number ?? result?.order?.short_number ?? result?.order?.order_number ?? result?.order?.id
-      window.location.href = orderNumber ? `/order?number=${encodeURIComponent(orderNumber)}` : '/order'
+      if (orderNumber) {
+        window.location.href = `/order?number=${encodeURIComponent(orderNumber)}`
+        return
+      }
+      window.location.href = '/order'
     } catch {
       setSubmitError('Не удалось оформить заказ')
     } finally {
@@ -529,56 +685,107 @@ export default function Page() {
     }
   }
 
-  const branchName = BRANCHES.find((b) => b.id === branch)?.name || branch
-  const contact = BRANCH_CONTACTS[branch]
+  const branchLabel = BRANCHES.find((b) => b.id === branch)?.name || branch
+  const branchPhone = BRANCH_PHONES[branch]
+  const shortBranchLabel = branchLabel.replace('На Виражах — ', '')
 
   return (
     <main style={{ maxWidth: 980, margin: '0 auto', padding: '18px 14px 120px' }}>
-      <div style={{ ...cardStyle, padding: 18, marginBottom: 18, background: 'linear-gradient(135deg, #0f255f 0%, #071432 100%)' }}>
+      <div
+        style={{
+          ...cardStyle,
+          padding: 18,
+          marginBottom: 18,
+          background: 'linear-gradient(135deg, #0f255f 0%, #071432 100%)',
+        }}
+      >
         <div style={{ fontSize: 30, fontWeight: 900, marginBottom: 8 }}>На Виражах</div>
         <div style={{ color: '#cdd9fb', marginBottom: 14 }}>Полное меню с фильтрацией по стоп-листу для выбранной точки.</div>
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {BRANCHES.map((b) => (
-            <button key={b.id} onClick={() => setBranch(b.id)} style={{ border: branch === b.id ? '1px solid #f4a01d' : '1px solid rgba(255,255,255,0.1)', background: branch === b.id ? 'rgba(244,160,29,0.16)' : 'rgba(255,255,255,0.03)', color: '#fff', borderRadius: 999, padding: '10px 14px', cursor: 'pointer', fontWeight: 700 }}>
+          {BRANCHES.filter((b, idx, arr) => arr.findIndex((x) => x.id === b.id) === idx).map((b) => (
+            <button
+              key={b.id}
+              onClick={() => setBranch(b.id)}
+              style={{
+                border: branch === b.id ? '1px solid #f4a01d' : '1px solid rgba(255,255,255,0.1)',
+                background: branch === b.id ? 'rgba(244,160,29,0.16)' : 'rgba(255,255,255,0.03)',
+                color: '#fff',
+                borderRadius: 999,
+                padding: '10px 14px',
+                cursor: 'pointer',
+                fontWeight: 700,
+              }}
+            >
               {b.name}
             </button>
           ))}
 
-          <a href="/order" style={{ marginLeft: 'auto', color: '#9fd4ff', textDecoration: 'none', alignSelf: 'center' }}>Отследить заказ</a>
-          <a href="/admin" style={{ color: '#9fd4ff', textDecoration: 'none', alignSelf: 'center' }}>Админка</a>
+          <a href="/order" style={{ marginLeft: 'auto', color: '#9fd4ff', textDecoration: 'none', alignSelf: 'center' }}>
+            Отследить заказ
+          </a>
+          <a href="/admin" style={{ color: '#9fd4ff', textDecoration: 'none', alignSelf: 'center' }}>
+            Админка
+          </a>
         </div>
       </div>
 
       {loading ? <div style={{ color: '#cdd9fb', padding: '8px 4px 18px' }}>Загрузка меню...</div> : null}
       {!loading && errorText ? <div style={{ color: '#ffb4b4', padding: '8px 4px 18px' }}>{errorText}</div> : null}
 
-      {!loading && CATEGORY_ORDER.map((categoryKey) => {
-        const categoryItems = groupedItems[categoryKey] || []
-        if (!categoryItems.length) return null
-        return (
-          <AccordionSection
-            key={categoryKey}
-            title={CATEGORY_LABELS[categoryKey] || categoryKey}
-            items={categoryItems}
-            open={!!openMap[categoryKey]}
-            getQuantity={getQuantity}
-            onAdd={addToCart}
-            onIncrease={increaseQuantity}
-            onDecrease={decreaseQuantity}
-            onToggle={() => setOpenMap((prev) => ({ ...prev, [categoryKey]: !prev[categoryKey] }))}
-          />
-        )
-      })}
+      {!loading &&
+        CATEGORY_ORDER.map((categoryKey) => {
+          const categoryItems = groupedItems[categoryKey] || []
+          if (!categoryItems.length) return null
+          return (
+            <AccordionSection
+              key={categoryKey}
+              title={CATEGORY_LABELS[categoryKey] || categoryKey}
+              items={categoryItems}
+              open={!!openMap[categoryKey]}
+              getQuantity={getQuantity}
+              onAdd={addToCart}
+              onIncrease={increaseQuantity}
+              onDecrease={decreaseQuantity}
+              onToggle={() => setOpenMap((prev) => ({ ...prev, [categoryKey]: !prev[categoryKey] }))}
+            />
+          )
+        })}
 
       {cartSummary.count > 0 ? (
-        <div style={{ position: 'fixed', left: 12, right: 12, bottom: 12, background: 'rgba(8,21,49,0.96)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 18, padding: 14, boxShadow: '0 14px 40px rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', zIndex: 50 }}>
+        <div
+          style={{
+            position: 'fixed',
+            left: 12,
+            right: 12,
+            bottom: 12,
+            background: 'rgba(8,21,49,0.96)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 18,
+            padding: 14,
+            boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
+            backdropFilter: 'blur(12px)',
+            zIndex: 50,
+          }}
+        >
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontWeight: 900, fontSize: 18 }}>В корзине: {cartSummary.count}</div>
               <div style={{ color: '#d9e4ff' }}>На сумму {formatPrice(cartSummary.total)}</div>
             </div>
-            <button onClick={() => setCheckoutOpen(true)} style={{ marginLeft: 'auto', border: 0, borderRadius: 14, background: '#f4a01d', color: '#111', fontWeight: 900, padding: '14px 18px', cursor: 'pointer' }}>
+            <button
+              onClick={() => setCheckoutOpen(true)}
+              style={{
+                marginLeft: 'auto',
+                border: 0,
+                borderRadius: 14,
+                background: '#f4a01d',
+                color: '#111',
+                fontWeight: 900,
+                padding: '14px 18px',
+                cursor: 'pointer',
+              }}
+            >
               Оформить заказ
             </button>
           </div>
@@ -586,69 +793,107 @@ export default function Page() {
       ) : null}
 
       {suggestionsOpen ? (
-        <div onClick={() => setSuggestionsOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 65, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 12 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 820, maxHeight: '85vh', overflow: 'auto', background: '#081531', borderRadius: 22, border: '1px solid rgba(255,255,255,0.08)', padding: 18 }}>
+        <div
+          onClick={() => setSuggestionsOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 65, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 12 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 820, maxHeight: '85vh', overflow: 'auto', background: '#081531', borderRadius: 22, border: '1px solid rgba(255,255,255,0.08)', padding: 18 }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 24, fontWeight: 900 }}>Добавить к заказу</div>
                 <div style={{ color: '#c4d1f6', marginTop: 6 }}>
-                  {normalizeCategory(suggestionsSource?.category, suggestionsSource?.name) === 'shawarma'
-                    ? 'Для шаурмы показываем именно добавки к шаурме.'
+                  {normalizeCategory(suggestionsSource?.category) === 'shawarma'
+                    ? 'Для шаурмы сначала показываем именно добавки к шаурме.'
                     : 'Подходящие дополнения к выбранной позиции.'}
                 </div>
               </div>
-              <button onClick={() => setSuggestionsOpen(false)} style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}>×</button>
+              <button onClick={() => setSuggestionsOpen(false)} style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}>
+                ×
+              </button>
             </div>
 
             <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
               {suggestions.map((item) => (
-                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div
+                  key={item.id}
+                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                >
                   <div>
                     <div style={{ fontWeight: 800 }}>{item.name}</div>
-                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>{CATEGORY_LABELS[normalizeCategory(item.category, item.name)] || item.category} · {formatPrice(item.price)}</div>
+                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>{(CATEGORY_LABELS[normalizeCategory(item.category)] || item.category)} · {formatPrice(item.price)}</div>
                   </div>
-                  <button onClick={() => addToCart(item, { openSuggestions: false })} style={{ border: 0, borderRadius: 12, background: '#22c55e', color: '#071432', fontWeight: 900, padding: '10px 14px', cursor: 'pointer' }}>Добавить</button>
+                  <button
+                    onClick={() => addToCart(item, { openSuggestions: false })}
+                    style={{ border: 0, borderRadius: 12, background: '#22c55e', color: '#071432', fontWeight: 900, padding: '10px 14px', cursor: 'pointer' }}
+                  >
+                    Добавить
+                  </button>
                 </div>
               ))}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
-              <button onClick={() => setSuggestionsOpen(false)} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, background: 'transparent', color: '#fff', fontWeight: 700, padding: '12px 16px', cursor: 'pointer' }}>Продолжить без добавок</button>
-              <button onClick={() => { setSuggestionsOpen(false); setCheckoutOpen(true) }} style={{ border: 0, borderRadius: 14, background: '#f4a01d', color: '#111', fontWeight: 900, padding: '12px 16px', cursor: 'pointer' }}>Перейти к оформлению</button>
+              <button
+                onClick={() => setSuggestionsOpen(false)}
+                style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, background: 'transparent', color: '#fff', fontWeight: 700, padding: '12px 16px', cursor: 'pointer' }}
+              >
+                Продолжить без добавок
+              </button>
+              <button
+                onClick={() => {
+                  setSuggestionsOpen(false)
+                  setCheckoutOpen(true)
+                }}
+                style={{ border: 0, borderRadius: 14, background: '#f4a01d', color: '#111', fontWeight: 900, padding: '12px 16px', cursor: 'pointer' }}
+              >
+                Перейти к оформлению
+              </button>
             </div>
           </div>
         </div>
       ) : null}
 
       {checkoutOpen ? (
-        <div onClick={() => setCheckoutOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 12 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 720, maxHeight: '90vh', overflow: 'auto', background: '#081531', borderRadius: 22, border: '1px solid rgba(255,255,255,0.08)', padding: 18 }}>
+        <div
+          onClick={() => setCheckoutOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 12 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 720, maxHeight: '90vh', overflow: 'auto', background: '#081531', borderRadius: 22, border: '1px solid rgba(255,255,255,0.08)', padding: 18 }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 900 }}>Оформление заказа{previewNumber ? ` ${previewNumber}` : ''}</div>
-              <button onClick={() => setCheckoutOpen(false)} style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}>×</button>
-            </div>
-
-            <div style={{ color: '#c4d1f6', marginTop: 8 }}>Точка: {branchName}</div>
-            {previewNumber && contact ? (
-              <div style={{ color: '#ffd08a', marginTop: 8, lineHeight: 1.45 }}>
-                После звонка администратору по номеру {contact.phone} {contact.notePlace ? `${contact.notePlace}, ` : ''}
-                назовите номер своего заказа для подтверждения.
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 900 }}>Оформление заказа {previewLoading ? '…' : previewOrderNumber}</div>
+                <div style={{ color: '#c4d1f6', marginTop: 6 }}>Точка: {branchLabel}</div>
+                <div style={{ color: '#ffd7a1', marginTop: 10, lineHeight: 1.45, maxWidth: 560 }}>
+                  После звонка администратору по номеру {branchPhone || 'указанному для точки'} {shortBranchLabel}, назовите номер своего заказа <strong>{previewOrderNumber}</strong> для подтверждения.
+                </div>
               </div>
-            ) : null}
+              <button onClick={() => setCheckoutOpen(false)} style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}>
+                ×
+              </button>
+            </div>
 
             <div style={{ display: 'grid', gap: 10, marginTop: 16, marginBottom: 16 }}>
               {cartSummary.items.map((item) => (
-                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 12 }}>
-                  <div>
+                <div
+                  key={item.id}
+                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 12 }}
+                >
+                  <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700 }}>{item.name}</div>
                     <div style={{ color: '#c4d1f6', fontSize: 13 }}>{formatPrice(item.price)} × {item.quantity}</div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <button onClick={() => decreaseQuantity(item.id)} style={{ width: 30, height: 30, borderRadius: 10, border: 0, background: '#1f335f', color: '#fff', cursor: 'pointer', fontSize: 20 }}>−</button>
-                    <div style={{ minWidth: 18, textAlign: 'center', fontWeight: 800 }}>{item.quantity}</div>
-                    <button onClick={() => increaseQuantity(item.id)} style={{ width: 30, height: 30, borderRadius: 10, border: 0, background: '#22c55e', color: '#071432', cursor: 'pointer', fontWeight: 900 }}>+</button>
-                    <button onClick={() => removeItem(item.id)} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, background: 'transparent', color: '#ffd5d5', padding: '8px 12px', cursor: 'pointer', fontWeight: 700 }}>Удалить</button>
-                    <div style={{ minWidth: 72, textAlign: 'right', fontWeight: 800 }}>{formatPrice(item.lineTotal)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button onClick={() => decreaseQuantity(item.id)} style={{ width: 34, height: 34, borderRadius: 10, border: 0, background: '#1f335f', color: '#fff', fontSize: 22, cursor: 'pointer' }}>−</button>
+                    <div style={{ minWidth: 20, textAlign: 'center', fontWeight: 800, fontSize: 18 }}>{item.quantity}</div>
+                    <button onClick={() => increaseQuantity(item.id)} style={{ width: 34, height: 34, borderRadius: 10, border: 0, background: '#22c55e', color: '#071432', fontSize: 22, cursor: 'pointer', fontWeight: 800 }}>+</button>
+                    <button onClick={() => removeFromCart(item.id)} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, background: 'transparent', color: '#ffd7d7', fontWeight: 700, padding: '10px 12px', cursor: 'pointer' }}>Удалить</button>
+                    <div style={{ fontWeight: 800, minWidth: 70, textAlign: 'right' }}>{formatPrice(item.lineTotal)}</div>
                   </div>
                 </div>
               ))}
@@ -667,9 +912,15 @@ export default function Page() {
                 <div style={{ color: '#c4d1f6' }}>Итого</div>
                 <div style={{ fontWeight: 900, fontSize: 24 }}>{formatPrice(cartSummary.total)}</div>
               </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button onClick={clearCart} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, background: 'transparent', color: '#fff', fontWeight: 800, padding: '14px 18px', cursor: 'pointer' }}>Очистить корзину</button>
-                <button disabled={submitting} onClick={submitOrder} style={{ border: 0, borderRadius: 14, background: submitting ? '#64748b' : '#22c55e', color: '#071432', fontWeight: 900, padding: '14px 20px', cursor: submitting ? 'default' : 'pointer' }}>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginLeft: 'auto' }}>
+                <button onClick={clearCart} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, background: 'transparent', color: '#fff', fontWeight: 800, padding: '14px 18px', cursor: 'pointer' }}>
+                  Очистить корзину
+                </button>
+                <button
+                  disabled={submitting}
+                  onClick={submitOrder}
+                  style={{ border: 0, borderRadius: 14, background: submitting ? '#64748b' : '#22c55e', color: '#071432', fontWeight: 900, padding: '14px 20px', cursor: submitting ? 'default' : 'pointer' }}
+                >
                   {submitting ? 'Оформляем...' : 'Подтвердить заказ'}
                 </button>
               </div>

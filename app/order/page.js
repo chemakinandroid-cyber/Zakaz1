@@ -3,12 +3,11 @@
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { BRANCHES } from '@/lib/menuFallback'
 
 const LABELS = {
   new: 'Новый',
   awaiting_call: 'Ожидает звонка',
-  confirmed: 'Заказ подтверждён',
+  confirmed: 'Заказ подтвержден',
   preparing: 'Готовится',
   ready: 'Готов',
   completed: 'Выдан',
@@ -16,60 +15,83 @@ const LABELS = {
   expired: 'Истёк',
 }
 
-const BRANCH_NAME_BY_ID = Object.fromEntries(BRANCHES.map((branch) => [branch.id, branch.name]))
+const BRANCH_NAMES = {
+  'nv-sh-001': 'На Виражах — Конечная',
+  'nv-fr-002': 'На Виражах — Аэропорт',
+}
 
-function formatDate(value) {
-  if (!value) return '—'
-  try {
-    return new Date(value).toLocaleString('ru-RU')
-  } catch {
-    return String(value)
-  }
+function normalizeDigits(value) {
+  return String(value || '').trim().replace(/^0+/, '') || '0'
 }
 
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim())
 }
 
-function normalizeNumber(value) {
-  return String(value || '').trim()
+function buildSearchCandidates(rawValue) {
+  const value = String(rawValue || '').trim()
+  const compact = value.replace(/\s+/g, '')
+  const numeric = normalizeDigits(compact)
+  const variants = new Set([value, compact, numeric])
+
+  if (/^\d+$/.test(compact)) {
+    variants.add(compact.padStart(4, '0'))
+    variants.add(compact.padStart(3, '0'))
+  }
+
+  return Array.from(variants).filter(Boolean)
 }
 
-async function loadBranchName(branchId) {
-  if (BRANCH_NAME_BY_ID[branchId]) return BRANCH_NAME_BY_ID[branchId]
-  if (!supabase || !branchId) return branchId || ''
-  const { data } = await supabase.from('branches').select('name').eq('id', branchId).maybeSingle()
-  return data?.name || branchId
+function pickBestOrder(rows, requestedValue) {
+  if (!Array.isArray(rows) || rows.length === 0) return null
+
+  const trimmed = String(requestedValue || '').trim()
+  const compact = trimmed.replace(/\s+/g, '')
+  const digits = normalizeDigits(compact)
+
+  const score = (row) => {
+    const shortNumber = String(row?.short_number || '').trim()
+    const orderNumber = String(row?.order_number || '').trim()
+    const id = String(row?.id || '').trim()
+
+    if (shortNumber === compact) return 100
+    if (normalizeDigits(shortNumber) === digits) return 95
+    if (orderNumber === compact) return 90
+    if (orderNumber.endsWith(`-${compact}`)) return 85
+    if (id === compact) return 80
+    if (shortNumber.includes(compact)) return 70
+    if (orderNumber.includes(compact)) return 60
+    return 0
+  }
+
+  return [...rows]
+    .sort((a, b) => {
+      const diff = score(b) - score(a)
+      if (diff !== 0) return diff
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    })[0]
 }
 
-function pickBestOrder(rows, searchValue) {
-  if (!rows?.length) return null
-  const normalized = normalizeNumber(searchValue)
-  const stripped = normalized.replace(/^0+/, '')
+function formatDateTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
 
-  const scored = rows.map((row) => {
-    let score = 0
-    const shortNum = normalizeNumber(row.short_number)
-    const orderNum = normalizeNumber(row.order_number)
-    const rowId = normalizeNumber(row.id)
-
-    if (shortNum === normalized) score += 100
-    if (stripped && shortNum === stripped) score += 90
-    if (orderNum === normalized) score += 80
-    if (normalized && orderNum.endsWith(`-${normalized}`)) score += 70
-    if (stripped && orderNum.endsWith(`-${stripped}`)) score += 65
-    if (rowId === normalized) score += 60
-
-    const created = row.created_at ? new Date(row.created_at).getTime() : 0
-    return { row, score, created }
-  })
-
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score
-    return b.created - a.created
-  })
-
-  return scored[0]?.row || null
+function resolveBranchName(orderRow, branchRow) {
+  return (
+    branchRow?.name ||
+    BRANCH_NAMES[String(orderRow?.branch_id || '').trim()] ||
+    String(orderRow?.branch_id || '').trim() ||
+    '—'
+  )
 }
 
 function OrderPageInner() {
@@ -81,8 +103,35 @@ function OrderPageInner() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  async function loadOrderDetails(orderRow) {
+    const [{ data: orderItems, error: orderItemsError }, { data: branchRow }] = await Promise.all([
+      supabase
+        .from('order_items')
+        .select('*')
+        .eq('order_id', orderRow.id),
+      supabase
+        .from('branches')
+        .select('id, name')
+        .eq('id', orderRow.branch_id)
+        .maybeSingle(),
+    ])
+
+    if (orderItemsError) {
+      throw orderItemsError
+    }
+
+    const sortedItems = [...(orderItems || [])].sort((a, b) => {
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    })
+
+    setOrder(orderRow)
+    setItems(sortedItems)
+    setBranchName(resolveBranchName(orderRow, branchRow))
+  }
+
   async function search(forcedNumber) {
-    const searchNumber = normalizeNumber(forcedNumber ?? number)
+    const searchNumber = String(forcedNumber ?? number).trim()
+
     setError('')
     setOrder(null)
     setItems([])
@@ -101,68 +150,47 @@ function OrderPageInner() {
     setLoading(true)
 
     try {
-      const stripped = searchNumber.replace(/^0+/, '')
-      const shortCandidates = Array.from(new Set([searchNumber, stripped].filter(Boolean)))
-      const results = []
+      const candidates = buildSearchCandidates(searchNumber)
+      const orParts = []
 
-      if (shortCandidates.length) {
-        const { data } = await supabase
-          .from('orders')
-          .select('*')
-          .in('short_number', shortCandidates)
-          .order('created_at', { ascending: false })
-        if (Array.isArray(data)) results.push(...data)
+      for (const candidate of candidates) {
+        const safe = candidate.replace(/[,%]/g, '')
+        orParts.push(`short_number.eq.${safe}`)
+        orParts.push(`order_number.eq.${safe}`)
+        if (isUuid(safe)) {
+          orParts.push(`id.eq.${safe}`)
+        }
       }
 
-      const { data: exactOrderNumber } = await supabase
+      const { data: rows, error: rowsError } = await supabase
         .from('orders')
         .select('*')
-        .eq('order_number', searchNumber)
+        .or(orParts.join(','))
         .order('created_at', { ascending: false })
-      if (Array.isArray(exactOrderNumber)) results.push(...exactOrderNumber)
+        .limit(20)
 
-      const suffixCandidates = Array.from(new Set([searchNumber, stripped].filter(Boolean)))
-      for (const suffix of suffixCandidates) {
-        const { data } = await supabase
-          .from('orders')
-          .select('*')
-          .ilike('order_number', `%-${suffix}`)
-          .order('created_at', { ascending: false })
-        if (Array.isArray(data)) results.push(...data)
+      if (rowsError) {
+        throw rowsError
       }
 
-      if (isUuid(searchNumber)) {
-        const { data } = await supabase.from('orders').select('*').eq('id', searchNumber).limit(1)
-        if (Array.isArray(data)) results.push(...data)
-      }
+      const bestOrder = pickBestOrder(rows || [], searchNumber)
 
-      const uniqueMap = new Map()
-      for (const row of results) uniqueMap.set(row.id, row)
-      const found = pickBestOrder(Array.from(uniqueMap.values()), searchNumber)
-
-      if (!found) {
+      if (!bestOrder) {
         setError('Заказ не найден')
-        setLoading(false)
         return
       }
 
-      const [{ data: orderItems }, resolvedBranchName] = await Promise.all([
-        supabase.from('order_items').select('*').eq('order_id', found.id).order('created_at', { ascending: true }),
-        loadBranchName(found.branch_id),
-      ])
-
-      setOrder(found)
-      setItems(orderItems || [])
-      setBranchName(resolvedBranchName)
-      setLoading(false)
-    } catch {
-      setLoading(false)
+      await loadOrderDetails(bestOrder)
+    } catch (e) {
+      console.error('order search error', e)
       setError('Не удалось загрузить заказ')
+    } finally {
+      setLoading(false)
     }
   }
 
   useEffect(() => {
-    const initialNumber = normalizeNumber(searchParams.get('number') || '')
+    const initialNumber = String(searchParams.get('number') || '').trim()
     if (!initialNumber) return
     setNumber(initialNumber)
     search(initialNumber)
@@ -171,13 +199,24 @@ function OrderPageInner() {
 
   useEffect(() => {
     if (!supabase || !order?.id) return
+
     const channel = supabase
-      .channel(`order-status-${order.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${order.id}` }, async (payload) => {
-        const updated = payload.new
-        setOrder(updated)
-        setBranchName(await loadBranchName(updated.branch_id))
-      })
+      .channel('order-status-' + order.id)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${order.id}` },
+        async (payload) => {
+          const updated = payload.new
+          const { data: branchRow } = await supabase
+            .from('branches')
+            .select('id, name')
+            .eq('id', updated.branch_id)
+            .maybeSingle()
+
+          setOrder(updated)
+          setBranchName(resolveBranchName(updated, branchRow))
+        }
+      )
       .subscribe()
 
     return () => {
@@ -185,60 +224,88 @@ function OrderPageInner() {
     }
   }, [order?.id])
 
-  const summary = useMemo(() => {
-    const total = (items || []).reduce((sum, item) => sum + Number(item.line_total || 0), 0)
-    const count = (items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0)
-    return { total, count }
-  }, [items])
+  const label = useMemo(() => LABELS[order?.status] || '—', [order])
+  const displayNumber = order?.short_number || order?.order_number || order?.id || ''
+  const createdAt = formatDateTime(order?.created_at)
 
   return (
-    <main style={{ maxWidth: 760, margin: '0 auto', padding: '32px 16px 80px' }}>
-      <div style={{ fontSize: 28, fontWeight: 900, marginBottom: 20 }}>Отслеживание заказа</div>
+    <main style={{ maxWidth: 720, margin: '0 auto', padding: 18 }}>
+      <h1>Отслеживание заказа</h1>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <input
           value={number}
           onChange={(e) => setNumber(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') search()
+          }}
           placeholder="Введите номер заказа"
-          style={{ flex: 1, padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.12)', background: '#09183e', color: '#fff' }}
+          style={{
+            flex: 1,
+            minWidth: 260,
+            padding: 14,
+            borderRadius: 12,
+            border: '1px solid rgba(255,255,255,0.15)',
+            background: '#081531',
+            color: '#fff',
+          }}
         />
+
         <button
           onClick={() => search()}
           disabled={loading}
-          style={{ border: 0, borderRadius: 14, background: '#f4a01d', color: '#111', fontWeight: 900, padding: '0 18px', cursor: 'pointer' }}
+          style={{
+            padding: '14px 18px',
+            borderRadius: 12,
+            border: 0,
+            background: '#f4a01d',
+            color: '#111',
+            fontWeight: 800,
+            opacity: loading ? 0.8 : 1,
+            cursor: loading ? 'default' : 'pointer',
+          }}
         >
           {loading ? 'Поиск...' : 'Найти'}
         </button>
       </div>
 
-      {error ? <div style={{ color: '#ffb4b4', marginBottom: 16 }}>{error}</div> : null}
+      {loading ? <div style={{ color: '#c4d1f6', marginBottom: 12 }}>Ищем заказ...</div> : null}
+      {error ? <div style={{ color: '#ffb4b4', marginBottom: 12 }}>{error}</div> : null}
 
       {order ? (
-        <div style={{ background: '#081531', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: 18 }}>
-          <div style={{ display: 'grid', gap: 8, marginBottom: 18 }}>
-            <div><span style={{ color: '#9bb0e5' }}>Номер заказа:</span> <b>{order.short_number || order.order_number || order.id}</b></div>
-            <div><span style={{ color: '#9bb0e5' }}>Точка:</span> <b>{branchName || order.branch_id}</b></div>
-            <div><span style={{ color: '#9bb0e5' }}>Статус:</span> <b>{LABELS[order.status] || order.status || '—'}</b></div>
-            <div><span style={{ color: '#9bb0e5' }}>Создан:</span> <b>{formatDate(order.created_at)}</b></div>
-            <div><span style={{ color: '#9bb0e5' }}>Позиций:</span> <b>{summary.count}</b></div>
-            <div><span style={{ color: '#9bb0e5' }}>Сумма:</span> <b>{summary.total} ₽</b></div>
-          </div>
+        <div style={{ background: '#0b1b45', borderRadius: 18, padding: 16, border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ fontSize: 42, fontWeight: 900 }}>{displayNumber}</div>
+          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Статус: {label}</div>
+          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Точка: {branchName}</div>
+          {createdAt ? <div style={{ color: '#c4d1f6', marginTop: 8 }}>Создан: {createdAt}</div> : null}
+          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Сумма: {order.total} ₽</div>
 
           {items.length ? (
-            <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
               {items.map((item) => (
-                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div
+                  key={item.id}
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    borderRadius: 12,
+                    padding: 12,
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                  }}
+                >
                   <div>
                     <div style={{ fontWeight: 800 }}>{item.item_name}</div>
-                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>{item.quantity} × {item.price} ₽</div>
+                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>
+                      {item.quantity} × {item.price} ₽
+                    </div>
                   </div>
                   <div style={{ fontWeight: 800 }}>{item.line_total} ₽</div>
                 </div>
               ))}
             </div>
-          ) : (
-            <div style={{ color: '#c4d1f6' }}>Состав заказа пока не загружен.</div>
-          )}
+          ) : null}
         </div>
       ) : null}
     </main>
@@ -247,7 +314,7 @@ function OrderPageInner() {
 
 export default function OrderPage() {
   return (
-    <Suspense fallback={<main style={{ maxWidth: 760, margin: '0 auto', padding: '32px 16px 80px' }}>Загрузка...</main>}>
+    <Suspense fallback={<div style={{ padding: 18 }}>Загрузка страницы заказа...</div>}>
       <OrderPageInner />
     </Suspense>
   )
