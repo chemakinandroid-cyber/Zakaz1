@@ -101,6 +101,28 @@ export async function POST(req) {
 
     if (itemsError) return Response.json({error:itemsError.message},{status:500})
 
+    // Push-уведомление (не блокируем ответ клиенту)
+    fetch(`${process.env.NEXT_PUBLIC_APP_URL||''}/api/push/send`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ branch_id, order_number: order.short_number||order.order_number, order_id: order.id }),
+    }).catch(()=>{})
+
+    // Отправляем push-уведомление оператору (fire & forget)
+    try {
+      const pushUrl = new URL('/api/push/send', req.url).toString()
+      fetch(pushUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branch_id,
+          title: `🔔 Новый заказ ${shortNumber}`,
+          body: `${customer_name} · ${total} ₽`,
+          order_number: shortNumber,
+        }),
+      }).catch(() => {})
+    } catch {}
+
     return Response.json({success:true,order,short_number:order.short_number})
   } catch(e) {
     console.error('POST /api/orders error:',e)

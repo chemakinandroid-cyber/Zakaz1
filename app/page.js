@@ -638,16 +638,46 @@ export default function Page() {
 
   if (successOrder) {
     const num=successOrder.short_number||successOrder.order_number||successOrder.id
+
+    async function subscribePush() {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js')
+        await navigator.serviceWorker.ready
+        const existing = await reg.pushManager.getSubscription()
+        const sub = existing || await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+        })
+        await fetch('/api/push/subscribe', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ subscription: sub.toJSON(), order_id: successOrder.id }),
+        })
+      } catch(e) { console.log('Push subscribe error:', e) }
+    }
+
     return (
       <main style={{maxWidth:480,margin:'0 auto',padding:'60px 16px',textAlign:'center'}}>
         <div style={{fontSize:64,marginBottom:16}}>✅</div>
         <div style={{fontFamily:"'Unbounded',sans-serif",fontWeight:900,fontSize:26,marginBottom:8}}>Заказ оформлен!</div>
         <div style={{fontFamily:"'Unbounded',sans-serif",fontWeight:900,fontSize:52,color:'#f4a01d',margin:'20px 0'}}>{num}</div>
-        <div style={{color:'#8fa3cc',fontSize:15,lineHeight:1.7,marginBottom:32}}>
+        <div style={{color:'#8fa3cc',fontSize:15,lineHeight:1.7,marginBottom:24}}>
           Позвоните по номеру <strong style={{color:'#f0f4ff'}}>{branch.phone}</strong>
           {branch.address?<><br/>📍 {branch.address}</>:null}
           <br/>и назовите номер заказа <strong style={{color:'#f4a01d'}}>{num}</strong>
         </div>
+
+        {typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && (
+          <div style={{marginBottom:24,padding:'14px 16px',borderRadius:14,background:'rgba(34,197,94,0.08)',border:'1px solid rgba(34,197,94,0.2)'}}>
+            <div style={{fontSize:14,color:'#a0f0c0',marginBottom:10}}>
+              🔔 Получите уведомление когда заказ будет готов
+            </div>
+            <button onClick={subscribePush} style={{...btnG,padding:'10px 20px',fontSize:14}}>
+              Разрешить уведомления
+            </button>
+          </div>
+        )}
+
         <div style={{display:'flex',gap:12,justifyContent:'center',flexWrap:'wrap'}}>
           <a href={`/order?number=${encodeURIComponent(num)}`} style={{...btnY,padding:'14px 24px',fontSize:15,textDecoration:'none',display:'inline-block'}}>Отследить заказ</a>
           <button onClick={()=>setSuccessOrder(null)} style={{...btnGh,padding:'14px 24px',fontSize:15}}>Новый заказ</button>

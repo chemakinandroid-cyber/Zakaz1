@@ -134,3 +134,67 @@ CREATE POLICY "stop_list_update_auth" ON stop_list
 DROP POLICY IF EXISTS "stop_list_delete_auth" ON stop_list;
 CREATE POLICY "stop_list_delete_auth" ON stop_list
   FOR DELETE USING (auth.role() = 'authenticated');
+
+-- ─── Таблица подписок на Push-уведомления ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  endpoint   text NOT NULL UNIQUE,
+  p256dh     text NOT NULL,
+  auth       text NOT NULL,
+  branch_id  text,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "push_subs_insert" ON push_subscriptions;
+CREATE POLICY "push_subs_insert" ON push_subscriptions
+  FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "push_subs_select_auth" ON push_subscriptions;
+CREATE POLICY "push_subs_select_auth" ON push_subscriptions
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "push_subs_delete_auth" ON push_subscriptions;
+CREATE POLICY "push_subs_delete_auth" ON push_subscriptions
+  FOR DELETE USING (auth.role() = 'authenticated');
+
+-- ─── Таблица push-подписок ────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  endpoint   text NOT NULL UNIQUE,
+  p256dh     text,
+  auth       text,
+  branch_id  text REFERENCES branches(id) ON DELETE SET NULL,
+  updated_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+-- Только service role может читать подписки (для отправки пушей)
+DROP POLICY IF EXISTS "push_subs_service_only" ON push_subscriptions;
+CREATE POLICY "push_subs_service_only" ON push_subscriptions
+  FOR ALL USING (true) WITH CHECK (true);
+
+-- ─── Таблица push-подписок клиентов ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  order_id   uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  endpoint   text NOT NULL,
+  subscription text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+-- Один заказ = одна подписка
+CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_order_id_idx ON push_subscriptions(order_id);
+
+-- RLS
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "push_insert_public" ON push_subscriptions;
+CREATE POLICY "push_insert_public" ON push_subscriptions
+  FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "push_select_service" ON push_subscriptions;
+CREATE POLICY "push_select_service" ON push_subscriptions
+  FOR SELECT USING (true);
