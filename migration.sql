@@ -119,3 +119,18 @@ CREATE POLICY "order_counters_select_public" ON order_counters
 -- После запуска миграции проверьте:
 -- SELECT * FROM cron.job WHERE jobname = 'expire-unconfirmed-orders';
 -- SELECT * FROM order_counters;
+
+-- ─── Политики для стоп-листа (управление из админки) ────────────────────────
+-- Авторизованные пользователи могут изменять стоп-лист
+
+DROP POLICY IF EXISTS "stop_list_insert_auth" ON stop_list;
+CREATE POLICY "stop_list_insert_auth" ON stop_list
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "stop_list_update_auth" ON stop_list;
+CREATE POLICY "stop_list_update_auth" ON stop_list
+  FOR UPDATE USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "stop_list_delete_auth" ON stop_list;
+CREATE POLICY "stop_list_delete_auth" ON stop_list
+  FOR DELETE USING (auth.role() = 'authenticated');
