@@ -136,11 +136,25 @@ function OrderCard({ order, items, branchLabel }) {
       )}
 
       {items?.length > 0 && (
-        <div style={{ display: 'grid', gap: 3, marginBottom: 10, padding: '8px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: 10 }}>
-          {items.map(i => (
-            <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#c8d5f5' }}>
-              <span>{i.item_name} × {i.quantity}</span>
-              <span style={{ color: '#8fa3cc' }}>{fmt(i.line_total)}</span>
+        <div style={{ display: 'grid', gap: 5, marginBottom: 10, padding: '8px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: 10 }}>
+          {items.map(i => {
+            let mods = []
+            try { mods = i.modifiers ? (typeof i.modifiers === 'string' ? JSON.parse(i.modifiers) : i.modifiers) : [] } catch {}
+            return (
+            <div key={i.id}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#c8d5f5' }}>
+                <span>{i.item_name} × {i.quantity}</span>
+                <span style={{ color: '#8fa3cc' }}>{fmt(i.line_total)}</span>
+              </div>
+              {mods.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3, paddingLeft: 8 }}>
+                  {mods.map(m => (
+                    <span key={m.id} style={{ fontSize: 11, padding: '1px 7px', borderRadius: 999, background: 'rgba(34,197,94,0.1)', color: '#a0f0c0', border: '1px solid rgba(34,197,94,0.2)' }}>
+                      +{m.name}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
