@@ -15,6 +15,17 @@ const LABELS = {
   expired: 'Истёк',
 }
 
+
+const BRANCH_LABELS = {
+  'nv-fr-002': 'На Виражах — Аэропорт',
+  'nv-sh-001': 'На Виражах — Конечная',
+  '1': 'На Виражах — Аэропорт',
+}
+
+function normalizeBranchName(branchId, branchRow) {
+  return branchRow?.name || BRANCH_LABELS[String(branchId)] || String(branchId || '')
+}
+
 function OrderPageInner() {
   const searchParams = useSearchParams()
   const [number, setNumber] = useState('')
@@ -96,7 +107,7 @@ function OrderPageInner() {
 
     setOrder(orderData)
     setItems(orderItems || [])
-    setBranchName(branchRow?.name || orderData.branch_id)
+    setBranchName(normalizeBranchName(orderData.branch_id, branchRow))
     setLoading(false)
   }
 
@@ -123,7 +134,7 @@ function OrderPageInner() {
             .select('name')
             .eq('id', updated.branch_id)
             .maybeSingle()
-          setBranchName(branchRow?.name || updated.branch_id)
+          setBranchName(normalizeBranchName(updated.branch_id, branchRow))
         }
       )
       .subscribe()
@@ -166,7 +177,7 @@ function OrderPageInner() {
         <div style={{ background: '#0b1b45', borderRadius: 18, padding: 16, border: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ fontSize: 42, fontWeight: 900 }}>{order.short_number || order.order_number || order.id}</div>
           <div style={{ color: '#d9e4ff', marginTop: 8 }}>Статус: {label}</div>
-          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Точка: {branchName || order.branch_id}</div>
+          <div style={{ color: '#d9e4ff', marginTop: 8 }}>Точка: {branchName || normalizeBranchName(order.branch_id)}</div>
           <div style={{ color: '#d9e4ff' }}>Сумма: {order.total} ₽</div>
 
           {items.length ? (
