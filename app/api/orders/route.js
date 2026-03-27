@@ -1,125 +1,138 @@
-import { createClient } from '@supabase/supabase-js'
-import { FALLBACK_MENU } from '@/lib/menuFallback'
-
-function normalizeItems(dbItems) {
-  const map = new Map()
-  for (const item of [...(dbItems || []), ...FALLBACK_MENU]) {
-    if (!map.has(item.id)) map.set(item.id, item)
-  }
-  return Array.from(map.values())
-}
+import { getServerSupabase } from '@/lib/serverSupabase'
+import { normalizeCategory } from '@/lib/menu'
+import { MAX_ACTIVE_ORDERS, ACTIVE_STATUSES } from '@/lib/constants'
 
 export async function POST(req) {
   try {
     const body = await req.json()
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    )
+    const supabase = getServerSupabase()
 
     const branch_id = String(body.branch_id || '').trim()
+    if (!branch_id) return Response.json({ error: 'branch_id обязателен' }, { status: 400 })
 
-    if (!branch_id) {
-      return Response.json({ error: 'branch_id обязателен' }, { status: 400 })
+    const customer_name = String(body.customer_name || '').trim()
+    const customer_phone = String(body.customer_phone || '').trim()
+    if (!customer_name) return Response.json({ error: 'Укажите имя' }, { status: 400 })
+    if (!customer_phone) return Response.json({ error: 'Укажите телефон' }, { status: 400 })
+
+    if (!Array.isArray(body.items) || !body.items.length) {
+      return Response.json({ error: 'Корзина пуста' }, { status: 400 })
     }
 
-    if (!body.items || !body.items.length) {
-      return Response.json({ error: 'Нет позиций' }, { status: 400 })
+    // Check active orders limit
+    const { count: activeCount, error: countError } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('branch_id', branch_id)
+      .in('status', ACTIVE_STATUSES)
+
+    if (countError) {
+      return Response.json({ error: 'Ошибка проверки загрузки' }, { status: 500 })
     }
 
+    if (activeCount >= MAX_ACTIVE_ORDERS) {
+      return Response.json(
+        { error: 'Точка временно перегружена. Попробуйте через несколько минут.' },
+        { status: 429 }
+      )
+    }
+
+    // Load menu
     const { data: menuItems, error: menuError } = await supabase
       .from('menu_items')
-      .select('*')
+      .select('id, name, price, branch_ids, category, variant, coming_soon')
 
-    if (menuError) {
-      return Response.json({ error: `Ошибка загрузки меню: ${menuError.message}` }, { status: 500 })
-    }
+    if (menuError) return Response.json({ error: 'Ошибка загрузки меню' }, { status: 500 })
 
-    const catalog = normalizeItems(menuItems)
-
-    const { data: stopList, error: stopError } = await supabase
+    // Load stop list
+    const { data: stopList } = await supabase
       .from('stop_list')
-      .select('menu_item_id, is_stopped')
+      .select('menu_item_id')
       .eq('branch_id', branch_id)
+      .eq('is_stopped', true)
 
-    if (stopError) {
-      return Response.json({ error: `Ошибка проверки стоп-листа: ${stopError.message}` }, { status: 500 })
-    }
+    const stoppedIds = new Set((stopList || []).map((r) => r.menu_item_id))
+    const menuById = Object.fromEntries((menuItems || []).map((m) => [m.id, m]))
 
-    const stoppedIds = new Set(
-      (stopList || [])
-        .filter((i) => i.is_stopped)
-        .map((i) => i.menu_item_id)
-    )
-
+    // Validate and build items
     let total = 0
+    const orderItems = []
 
-    const items = body.items.map((i) => {
-      const menu = catalog.find((m) => m.id === i.id)
-
-      if (!menu) throw new Error('Товар не найден')
-
+    for (const entry of body.items) {
+      const menu = menuById[entry.id]
+      if (!menu) return Response.json({ error: `Товар не найден: ${entry.id}` }, { status: 400 })
+      if (menu.coming_soon) return Response.json({ error: `"${menu.name}" ещё не в продаже` }, { status: 400 })
+      if (stoppedIds.has(menu.id)) return Response.json({ error: `"${menu.name}" временно недоступен` }, { status: 400 })
       if (Array.isArray(menu.branch_ids) && menu.branch_ids.length > 0 && !menu.branch_ids.includes(branch_id)) {
-        throw new Error(`"${menu.name}" недоступен для выбранной точки`)
+        return Response.json({ error: `"${menu.name}" недоступен для этой точки` }, { status: 400 })
       }
 
-      if (stoppedIds.has(menu.id)) {
-        throw new Error(`"${menu.name}" в стопе`)
-      }
-
-      const quantity = Math.max(1, Number(i.quantity || 1))
+      const qty = Math.max(1, Math.floor(Number(entry.quantity) || 1))
       const price = Number(menu.price || 0)
-      const lineTotal = price * quantity
+      const lineTotal = price * qty
       total += lineTotal
 
-      return {
+      orderItems.push({
         item_id: menu.id,
         item_name: menu.name,
         price,
-        quantity,
+        quantity: qty,
         line_total: lineTotal,
-      }
-    })
+      })
+    }
 
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert([
-        {
-          branch_id,
-          customer_name: body.customer_name || null,
-          customer_phone: body.customer_phone || null,
-          comment: body.comment || null,
-          total,
-        },
-      ])
+    // Get next short_number via counter (atomic upsert)
+    const { data: counterRow, error: counterError } = await supabase
+      .from('order_counters')
+      .upsert({ branch_id, last_number: 1 }, { onConflict: 'branch_id', ignoreDuplicates: false })
       .select()
       .single()
 
-    if (orderError) {
-      return Response.json({ error: orderError.message }, { status: 500 })
-    }
+    // Fetch current counter
+    const { data: currentCounter } = await supabase
+      .from('order_counters')
+      .select('last_number')
+      .eq('branch_id', branch_id)
+      .single()
 
-    const itemsToInsert = items.map((i) => ({
-      ...i,
-      order_id: order.id,
-    }))
+    const nextNum = (Number(currentCounter?.last_number) || 0) + 1
+    const shortNumber = String(nextNum).padStart(4, '0')
+    const orderNumber = `${branch_id}-${shortNumber}`
 
+    // Increment counter
+    await supabase
+      .from('order_counters')
+      .update({ last_number: nextNum })
+      .eq('branch_id', branch_id)
+
+    // Insert order
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert([{
+        branch_id,
+        order_number: orderNumber,
+        short_number: shortNumber,
+        status: 'new',
+        total,
+        customer_name,
+        customer_phone,
+        comment: String(body.comment || '').trim() || null,
+      }])
+      .select()
+      .single()
+
+    if (orderError) return Response.json({ error: orderError.message }, { status: 500 })
+
+    // Insert order items
     const { error: itemsError } = await supabase
       .from('order_items')
-      .insert(itemsToInsert)
+      .insert(orderItems.map((i) => ({ ...i, order_id: order.id })))
 
-    if (itemsError) {
-      return Response.json({ error: itemsError.message }, { status: 500 })
-    }
+    if (itemsError) return Response.json({ error: itemsError.message }, { status: 500 })
 
-    return Response.json({
-      success: true,
-      order,
-      short_number: order.short_number,
-      order_number: order.order_number,
-    })
+    return Response.json({ success: true, order, short_number: order.short_number })
   } catch (e) {
-    return Response.json({ error: e.message }, { status: 500 })
+    console.error('POST /api/orders error:', e)
+    return Response.json({ error: e.message || 'Ошибка сервера' }, { status: 500 })
   }
 }
