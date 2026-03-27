@@ -156,7 +156,8 @@ function OrderCard({ order, items, branchLabel }) {
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
