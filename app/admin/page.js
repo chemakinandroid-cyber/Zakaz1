@@ -50,73 +50,6 @@ function normCat(cat) {
 }
 
 
-// ─── Push-уведомления ─────────────────────────────────────────────────────────
-
-function usePush(session, branchId) {
-  const [pushState, setPushState] = useState('idle') // idle | requesting | granted | denied | unsupported
-
-  useEffect(() => {
-    if (!session) return
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setPushState('unsupported'); return
-    }
-    if (Notification.permission === 'granted') {
-      setPushState('granted')
-    } else if (Notification.permission === 'denied') {
-      setPushState('denied')
-    }
-  }, [session])
-
-  async function subscribe() {
-    if (!('serviceWorker' in navigator)) return
-    setPushState('requesting')
-    try {
-      const reg = await navigator.serviceWorker.register('/sw.js')
-      await navigator.serviceWorker.ready
-
-      const permission = await Notification.requestPermission()
-      if (permission !== 'granted') { setPushState('denied'); return }
-
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
-      })
-
-      await fetch('/api/push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription: sub.toJSON(), branch_id: branchId === 'all' ? null : branchId }),
-      })
-
-      setPushState('granted')
-    } catch (e) {
-      console.error('push subscribe error', e)
-      setPushState('idle')
-    }
-  }
-
-  async function unsubscribe() {
-    try {
-      const reg = await navigator.serviceWorker.getRegistration('/sw.js')
-      if (!reg) return
-      const sub = await reg.pushManager.getSubscription()
-      if (!sub) { setPushState('idle'); return }
-
-      await fetch('/api/push', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint: sub.endpoint }),
-      })
-      await sub.unsubscribe()
-      setPushState('idle')
-    } catch (e) {
-      console.error('push unsubscribe error', e)
-    }
-  }
-
-  return { pushState, subscribe, unsubscribe }
-}
-
 // ─── Login ────────────────────────────────────────────────────────────────────
 
 function Login({ onLogin }) {
@@ -498,65 +431,6 @@ export default function AdminPage() {
   const done   = useMemo(() => orders.filter(o => DONE_ST.includes(o.status)).sort((a,b) => new Date(b.created_at)-new Date(a.created_at)).slice(0,30), [orders])
   const newCnt = active.filter(o => o.status==='new').length
 
-  const { pushState, subscribe, unsubscribe } = usePush(session, branch)
-
-  // ─── Push-уведомления ──────────────────────────────────────────────────────
-  const [pushState, setPushState] = useState('idle') // idle | subscribed | denied | loading
-
-  useEffect(() => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
-    // Регистрируем service worker
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
-    // Проверяем текущее состояние подписки
-    navigator.serviceWorker.ready.then(reg => {
-      reg.pushManager.getSubscription().then(sub => {
-        setPushState(sub ? 'subscribed' : 'idle')
-      })
-    }).catch(() => {})
-  }, [])
-
-  async function subscribePush() {
-    if (!('serviceWorker' in navigator)) return alert('Браузер не поддерживает уведомления')
-    setPushState('loading')
-    try {
-      const reg = await navigator.serviceWorker.ready
-      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-      if (!vapidKey) { alert('VAPID ключ не настроен'); setPushState('idle'); return }
-
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: vapidKey,
-      })
-
-      await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscription: sub.toJSON(), branch_id: branch === 'all' ? null : branch }),
-      })
-      setPushState('subscribed')
-    } catch (e) {
-      console.error('push subscribe error', e)
-      setPushState(Notification.permission === 'denied' ? 'denied' : 'idle')
-    }
-  }
-
-  async function unsubscribePush() {
-    setPushState('loading')
-    try {
-      const reg = await navigator.serviceWorker.ready
-      const sub = await reg.pushManager.getSubscription()
-      if (sub) {
-        await fetch('/api/push/subscribe', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint: sub.endpoint }),
-        })
-        await sub.unsubscribe()
-      }
-      setPushState('idle')
-    } catch { setPushState('idle') }
-  }
-
   async function logout() { await supabase.auth.signOut(); setSession(null) }
 
   if (!authChecked) return null
@@ -577,35 +451,7 @@ export default function AdminPage() {
               🔔 {newCnt} {newCnt===1?'новый':'новых'}
             </div>
           )}
-          {/* Push-кнопка */}
-          {pushState === 'unsupported' ? null : pushState === 'granted' ? (
-            <button onClick={unsubscribe} style={{ border:'1px solid rgba(34,197,94,0.3)', borderRadius:10, background:'rgba(34,197,94,0.1)', color:'#22c55e', fontFamily:"'Onest',sans-serif", fontSize:13, padding:'8px 14px', cursor:'pointer' }}>
-              🔔 Уведомления вкл
-            </button>
-          ) : pushState === 'denied' ? (
-            <span style={{ fontSize:12, color:'#6b7db5' }}>🔕 Уведомления заблокированы</span>
-          ) : (
-            <button onClick={subscribe} disabled={pushState==='requesting'} style={{ border:'1px solid rgba(255,255,255,0.15)', borderRadius:10, background:'transparent', color:'#8fa3cc', fontFamily:"'Onest',sans-serif", fontSize:13, padding:'8px 14px', cursor:'pointer' }}>
-              {pushState==='requesting' ? '⏳ Подключение…' : '🔔 Включить уведомления'}
-            </button>
-          )}
-          {/* Кнопка push-уведомлений */}
-          {pushState === 'subscribed' && (
-            <button onClick={unsubscribePush} title="Уведомления включены. Нажмите чтобы отключить" style={{ border:'1px solid rgba(34,197,94,0.4)', borderRadius:10, background:'rgba(34,197,94,0.1)', color:'#22c55e', fontFamily:"'Onest',sans-serif", fontSize:13, padding:'8px 14px', cursor:'pointer' }}>
-              🔔 Вкл
-            </button>
-          )}
-          {pushState === 'idle' && (
-            <button onClick={subscribePush} title="Включить push-уведомления о новых заказах" style={{ border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, background:'transparent', color:'#8fa3cc', fontFamily:"'Onest',sans-serif", fontSize:13, padding:'8px 14px', cursor:'pointer' }}>
-              🔕 Уведомления
-            </button>
-          )}
-          {pushState === 'denied' && (
-            <span title="Уведомления заблокированы в браузере" style={{ fontSize:13, color:'#6b7db5' }}>🚫 Уведомления заблокированы</span>
-          )}
-          {pushState === 'loading' && (
-            <span style={{ fontSize:13, color:'#6b7db5' }}>…</span>
-          )}
+
           <a href="/" style={{ color:'#6b8ecf', fontSize:13, textDecoration:'none' }}>← Меню</a>
           <button onClick={logout} style={{ border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, background:'transparent', color:'#8fa3cc', fontFamily:"'Onest',sans-serif", fontSize:13, padding:'8px 14px', cursor:'pointer' }}>Выйти</button>
         </div>
