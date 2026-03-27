@@ -1,17 +1,22 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { FALLBACK_MENU } from '@/lib/menuFallback'
 
 const BRANCHES = [
-  { id: 'nv-fr-002', name: 'На Виражах — Аэропорт' },
-  { id: 'nv-sh-001', name: 'На Виражах — Конечная' },
+  {
+    id: 'nv-fr-002',
+    name: 'На Виражах — Аэропорт',
+    phone: '+79024524222',
+    address: 'Аэропорт, 7',
+  },
+  {
+    id: 'nv-sh-001',
+    name: 'На Виражах — Конечная',
+    phone: '+79085932688',
+    address: 'Конечная',
+  },
 ]
-
-const BRANCH_PHONES = {
-  'nv-fr-002': '+79024524222',
-  '1': '+79024524222',
-  'nv-sh-001': '+79085932688',
-}
 
 const CATEGORY_LABELS = {
   shawarma: 'Шаурма',
@@ -27,7 +32,6 @@ const CATEGORY_LABELS = {
 
 const CATEGORY_ORDER = [
   'shawarma',
-  'shawarma_addons',
   'burgers',
   'hotdogs',
   'shashlik',
@@ -51,31 +55,24 @@ function formatPrice(value) {
   return `${Number(value || 0)} ₽`
 }
 
-function formatShortNumber(value) {
-  const num = Number(String(value || '').replace(/\D/g, ''))
-  if (!Number.isFinite(num) || num <= 0) return '0001'
-  return String(num).padStart(4, '0')
-}
-
 function normalizeCategory(category) {
-  const raw = String(category || '').trim().toLowerCase()
-  if (!raw) return 'other'
-  if (raw === 'fryer') return 'fries'
-  if (raw.includes('добав') && raw.includes('шаур')) return 'shawarma_addons'
-  if (raw.includes('shawarma') && raw.includes('addon')) return 'shawarma_addons'
-  return raw
-}
+  const source = String(category || '').trim().toLowerCase()
 
-function isShawarmaAddon(item) {
-  const category = normalizeCategory(item?.category)
-  const name = String(item?.name || '').toLowerCase()
-  const description = String(item?.description || '').toLowerCase()
+  if (!source) return 'other'
+  if (source === 'fryer') return 'fries'
+  if (source === 'shawarma_addons') return 'shawarma_addons'
+  if (source.includes('добав')) return 'shawarma_addons'
+  if (source.includes('shawarma')) return source.includes('addon') ? 'shawarma_addons' : 'shawarma'
+  if (source.includes('шаур')) return source.includes('добав') ? 'shawarma_addons' : 'shawarma'
+  if (source.includes('burger') || source.includes('бургер')) return 'burgers'
+  if (source.includes('hotdog') || source.includes('хот')) return 'hotdogs'
+  if (source.includes('shash') || source.includes('шаш')) return 'shashlik'
+  if (source.includes('ques') || source.includes('кесад')) return 'quesadilla'
+  if (source.includes('fry') || source.includes('фрит') || source.includes('крыл') || source.includes('кревет') || source.includes('нагг') || source.includes('стрипс') || source.includes('палоч')) return 'fries'
+  if (source.includes('sauce') || source.includes('соус')) return 'sauces'
+  if (source.includes('drink') || source.includes('напит') || source.includes('чай') || source.includes('коф')) return 'drinks'
 
-  return (
-    category === 'shawarma_addons' ||
-    (name.includes('добав') && name.includes('шаур')) ||
-    (description.includes('добав') && description.includes('шаур'))
-  )
+  return source
 }
 
 function matchesBranch(item, branchId) {
@@ -83,54 +80,172 @@ function matchesBranch(item, branchId) {
   return item.branch_ids.includes(branchId)
 }
 
-function buildSuggestions(sourceItem, allItems, cartIds) {
-  const normalizedSourceCategory = normalizeCategory(sourceItem.category)
-  const sourceVariant = sourceItem.variant || null
+function normalizeText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/["«»]/g, '')
+    .replace(/[—–-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
-  let pool = []
+function canonicalName(item) {
+  const raw = String(item?.name || '').trim()
+  const description = String(item?.description || '').toLowerCase()
+  const normalized = normalizeText(raw)
 
-  if (normalizedSourceCategory === 'shawarma') {
-    pool = allItems.filter((item) => isShawarmaAddon(item))
-
-    if (!pool.length) {
-      pool = allItems.filter((item) => {
-        const normalizedItemCategory = normalizeCategory(item.category)
-        return ['fries', 'sauces', 'drinks'].includes(normalizedItemCategory)
-      })
-    }
-  } else {
-    let allowedCategories = []
-    if (normalizedSourceCategory === 'burgers' || normalizedSourceCategory === 'hotdogs') {
-      allowedCategories = ['fries', 'sauces', 'drinks']
-    } else if (normalizedSourceCategory === 'fries') {
-      allowedCategories = ['sauces', 'drinks']
-    } else {
-      allowedCategories = ['drinks', 'sauces']
-    }
-
-    pool = allItems.filter((item) => allowedCategories.includes(normalizeCategory(item.category)))
+  if (normalized === 'картофель фри' || (normalized === 'картофель фри 100 гр') || (normalized === 'картофель фри 100г')) {
+    return 'Картофель фри 100 г'
   }
 
-  const suggestions = pool.filter((item) => {
-    if (item.id === sourceItem.id) return false
-    if (cartIds.has(item.id)) return false
-    if (Number(item.price) <= 0) return false
+  if (normalized === 'картофель фри' && description.includes('100')) {
+    return 'Картофель фри 100 г'
+  }
 
-    if (sourceVariant === 'chicken' && item.variant === 'pork') return false
-    if (sourceVariant === 'pork' && item.variant === 'chicken') return false
+  if (normalized === 'ред джет' || normalized === 'шаурма ред джет' || normalized === 'шаурма ред джет курица') {
+    return item.variant === 'pork' ? 'Шаурма "Ред.Джет" — свинина' : 'Шаурма "Ред.Джет" — курица'
+  }
 
-    return true
-  })
+  if (normalized === 'шаурма ред.джет курица' || normalized === 'шаурма ред джет курица') {
+    return 'Шаурма "Ред.Джет" — курица'
+  }
 
-  const categoryPriority = { shawarma_addons: 1, fries: 2, sauces: 3, drinks: 4 }
+  if (normalized === 'шаурма ред.джет свинина' || normalized === 'шаурма ред джет свинина') {
+    return 'Шаурма "Ред.Джет" — свинина'
+  }
 
-  return suggestions
-    .sort((a, b) => {
-      const ca = categoryPriority[normalizeCategory(a.category)] || 99
-      const cb = categoryPriority[normalizeCategory(b.category)] || 99
-      if (ca !== cb) return ca - cb
-      return Number(a.price || 0) - Number(b.price || 0)
+  return raw
+}
+
+function normalizeVariant(value) {
+  const source = String(value || '').trim().toLowerCase()
+  if (!source) return ''
+  if (source.includes('кур')) return 'chicken'
+  if (source.includes('свин')) return 'pork'
+  return source
+}
+
+function pickBetterItem(current, candidate) {
+  const currentDesc = String(current.description || '')
+  const candidateDesc = String(candidate.description || '')
+
+  const currentScore =
+    (currentDesc.length > 0 ? 2 : 0) +
+    (String(current.name || '').includes('100 г') ? 1 : 0)
+  const candidateScore =
+    (candidateDesc.length > 0 ? 2 : 0) +
+    (String(candidate.name || '').includes('100 г') ? 1 : 0)
+
+  return candidateScore > currentScore ? candidate : current
+}
+
+function prepareMenu(rawItems, branchId) {
+  const filtered = (rawItems || [])
+    .filter((item) => matchesBranch(item, branchId))
+    .map((item) => {
+      const category = normalizeCategory(item.category)
+      const variant = normalizeVariant(item.variant)
+      const name = canonicalName({ ...item, variant })
+      return {
+        ...item,
+        category,
+        variant,
+        name,
+      }
     })
+    .filter((item) => item.category !== 'shawarma_addons')
+    .filter((item) => {
+      const normalizedName = normalizeText(item.name)
+      if (normalizedName === 'картофель фри' && !String(item.description || '').includes('100')) {
+        return false
+      }
+      return true
+    })
+
+  const unique = new Map()
+
+  for (const item of filtered) {
+    const key = [
+      item.category,
+      normalizeText(item.name),
+      Number(item.price || 0),
+    ].join('|')
+
+    if (!unique.has(key)) {
+      unique.set(key, item)
+    } else {
+      unique.set(key, pickBetterItem(unique.get(key), item))
+    }
+  }
+
+  return Array.from(unique.values()).sort((a, b) => {
+    const categoryDiff = CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category)
+    if (categoryDiff !== 0) return categoryDiff
+    if (a.price !== b.price) return Number(a.price || 0) - Number(b.price || 0)
+    return String(a.name || '').localeCompare(String(b.name || ''), 'ru')
+  })
+}
+
+function prepareShawarmaAddons(rawItems, branchId) {
+  const explicit = (rawItems || [])
+    .filter((item) => matchesBranch(item, branchId))
+    .map((item) => ({ ...item, category: normalizeCategory(item.category) }))
+    .filter((item) => item.category === 'shawarma_addons')
+
+  const unique = new Map()
+  for (const item of explicit) {
+    const name = canonicalName(item)
+    const key = `${normalizeText(name)}|${Number(item.price || 0)}`
+    const normalized = { ...item, name, category: 'shawarma_addons' }
+    if (!unique.has(key)) {
+      unique.set(key, normalized)
+    } else {
+      unique.set(key, pickBetterItem(unique.get(key), normalized))
+    }
+  }
+
+  const preferredOrder = [
+    'курица 70 г',
+    'свинина 70 г',
+    'картофель фри 100 г',
+    'перец халапеньо',
+    'огурцы маринованные',
+    'сладкая горчица',
+    'сыр',
+    'сырный соус',
+    'лук фри',
+  ]
+
+  return Array.from(unique.values()).sort((a, b) => {
+    const aIdx = preferredOrder.indexOf(normalizeText(a.name))
+    const bIdx = preferredOrder.indexOf(normalizeText(b.name))
+    const aRank = aIdx === -1 ? 999 : aIdx
+    const bRank = bIdx === -1 ? 999 : bIdx
+    if (aRank !== bRank) return aRank - bRank
+    if (a.price !== b.price) return Number(a.price || 0) - Number(b.price || 0)
+    return String(a.name || '').localeCompare(String(b.name || ''), 'ru')
+  })
+}
+
+function buildSuggestions(sourceItem, allItems, addons, cartIds) {
+  if (sourceItem.category === 'shawarma') {
+    const filteredAddons = addons.filter((item) => !cartIds.has(item.id))
+    if (filteredAddons.length) return filteredAddons
+  }
+
+  let allowedCategories = []
+  if (sourceItem.category === 'burgers' || sourceItem.category === 'hotdogs') {
+    allowedCategories = ['fries', 'sauces', 'drinks']
+  } else if (sourceItem.category === 'fries') {
+    allowedCategories = ['sauces', 'drinks']
+  } else {
+    allowedCategories = ['drinks', 'sauces']
+  }
+
+  return allItems
+    .filter((item) => item.id !== sourceItem.id)
+    .filter((item) => !cartIds.has(item.id))
+    .filter((item) => allowedCategories.includes(item.category))
     .slice(0, 6)
 }
 
@@ -168,48 +283,18 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
       </div>
 
       <div>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            gap: 12,
-            alignItems: 'flex-start',
-          }}
-        >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ fontWeight: 700, fontSize: 19, lineHeight: 1.2 }}>{item.name}</div>
-
-          <div
-            style={{
-              color: isComingSoon ? '#9bb0e5' : '#ffb347',
-              fontWeight: 800,
-              fontSize: 22,
-              whiteSpace: 'nowrap',
-            }}
-          >
+          <div style={{ color: isComingSoon ? '#9bb0e5' : '#ffb347', fontWeight: 800, fontSize: 22, whiteSpace: 'nowrap' }}>
             {isComingSoon ? '—' : formatPrice(item.price)}
           </div>
         </div>
 
-        <div
-          style={{
-            marginTop: 8,
-            color: '#d9e4ff',
-            fontSize: 14,
-            lineHeight: 1.45,
-          }}
-        >
+        <div style={{ marginTop: 8, color: '#d9e4ff', fontSize: 14, lineHeight: 1.45 }}>
           {item.description || 'Описание скоро добавим'}
         </div>
 
-        <div
-          style={{
-            marginTop: 12,
-            display: 'flex',
-            gap: 8,
-            flexWrap: 'wrap',
-            alignItems: 'center',
-          }}
-        >
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <span
             style={{
               fontSize: 12,
@@ -219,7 +304,7 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
               color: '#ffd08a',
             }}
           >
-            {CATEGORY_LABELS[normalizeCategory(item.category)] || item.category}
+            {CATEGORY_LABELS[item.category] || item.category}
           </span>
 
           {item.variant ? (
@@ -233,20 +318,6 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
               }}
             >
               {item.variant === 'chicken' ? 'Курица' : item.variant === 'pork' ? 'Свинина' : item.variant}
-            </span>
-          ) : null}
-
-          {isComingSoon ? (
-            <span
-              style={{
-                fontSize: 12,
-                padding: '6px 10px',
-                borderRadius: 999,
-                background: 'rgba(155,176,229,0.15)',
-                color: '#9bb0e5',
-              }}
-            >
-              Скоро в продаже
             </span>
           ) : null}
         </div>
@@ -287,38 +358,9 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
             >
               <div style={{ color: '#d9e4ff', fontSize: 13 }}>Количество в корзине</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <button
-                  onClick={() => onDecrease(item.id)}
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 10,
-                    border: 0,
-                    background: '#1f335f',
-                    color: '#fff',
-                    fontSize: 22,
-                    cursor: 'pointer',
-                  }}
-                >
-                  −
-                </button>
+                <button onClick={() => onDecrease(item.id)} style={qtyButtonStyle('#1f335f', '#fff')}>−</button>
                 <div style={{ minWidth: 20, textAlign: 'center', fontWeight: 800, fontSize: 18 }}>{quantity}</div>
-                <button
-                  onClick={() => onIncrease(item.id)}
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 10,
-                    border: 0,
-                    background: '#22c55e',
-                    color: '#071432',
-                    fontSize: 22,
-                    cursor: 'pointer',
-                    fontWeight: 800,
-                  }}
-                >
-                  +
-                </button>
+                <button onClick={() => onIncrease(item.id)} style={qtyButtonStyle('#22c55e', '#071432')}>+</button>
               </div>
             </div>
           ) : null}
@@ -326,6 +368,20 @@ function ProductCard({ item, quantity, onAdd, onIncrease, onDecrease }) {
       </div>
     </div>
   )
+}
+
+function qtyButtonStyle(background, color) {
+  return {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    border: 0,
+    background,
+    color,
+    fontSize: 22,
+    cursor: 'pointer',
+    fontWeight: 800,
+  }
 }
 
 function AccordionSection({ title, items, open, onToggle, getQuantity, onAdd, onIncrease, onDecrease }) {
@@ -370,6 +426,7 @@ function AccordionSection({ title, items, open, onToggle, getQuantity, onAdd, on
 export default function Page() {
   const [branch, setBranch] = useState(BRANCHES[0].id)
   const [items, setItems] = useState([])
+  const [addons, setAddons] = useState([])
   const [loading, setLoading] = useState(true)
   const [errorText, setErrorText] = useState('')
   const [cart, setCart] = useState([])
@@ -382,11 +439,9 @@ export default function Page() {
   const [comment, setComment] = useState('')
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [previewOrderNumber, setPreviewOrderNumber] = useState('0001')
-  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewNumber, setPreviewNumber] = useState('')
   const [openMap, setOpenMap] = useState({
     shawarma: true,
-    shawarma_addons: true,
     burgers: true,
     hotdogs: true,
     shashlik: false,
@@ -401,15 +456,9 @@ export default function Page() {
       const raw = window.localStorage.getItem(CART_STORAGE_KEY)
       if (!raw) return
       const parsed = JSON.parse(raw)
-
-      if (Array.isArray(parsed?.items)) {
-        setCart(parsed.items)
-      }
-
-      const rawSavedBranch = parsed?.branch
-      const savedBranch = typeof rawSavedBranch === 'string' ? rawSavedBranch : BRANCHES[0].id
-      if (BRANCHES.some((b) => b.id === savedBranch)) {
-        setBranch(savedBranch)
+      if (Array.isArray(parsed?.items)) setCart(parsed.items)
+      if (typeof parsed?.branch === 'string' && BRANCHES.some((b) => b.id === parsed.branch)) {
+        setBranch(parsed.branch)
       }
     } catch {}
   }, [])
@@ -427,47 +476,59 @@ export default function Page() {
       setLoading(true)
       setErrorText('')
 
-      const { createClient } = await import('@supabase/supabase-js')
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-      const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      try {
+        const { createClient } = await import('@supabase/supabase-js')
+        const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-      if (!url || !key) {
+        if (!url || !key) {
+          const preparedFallback = prepareMenu(FALLBACK_MENU, branch)
+          const preparedAddons = prepareShawarmaAddons(FALLBACK_MENU, branch)
+          if (!active) return
+          setItems(preparedFallback)
+          setAddons(preparedAddons)
+          setErrorText('Supabase не подключен, показано резервное меню')
+          setLoading(false)
+          return
+        }
+
+        const supabase = createClient(url, key)
+        const [{ data: menuData, error: menuError }, { data: stopData, error: stopError }] = await Promise.all([
+          supabase.from('menu_items').select('*').order('name', { ascending: true }),
+          supabase.from('stop_list').select('menu_item_id, is_stopped').eq('branch_id', branch),
+        ])
+
         if (!active) return
-        setItems([])
-        setErrorText('Supabase не подключен')
+
+        if (menuError) {
+          const preparedFallback = prepareMenu(FALLBACK_MENU, branch)
+          const preparedAddons = prepareShawarmaAddons(FALLBACK_MENU, branch)
+          setItems(preparedFallback)
+          setAddons(preparedAddons)
+          setErrorText('Не удалось загрузить меню из Supabase, показано резервное меню')
+          setLoading(false)
+          return
+        }
+
+        const stoppedIds = new Set(
+          (stopData || []).filter((row) => row.is_stopped).map((row) => row.menu_item_id)
+        )
+
+        if (stopError) console.error(stopError)
+
+        const available = (menuData || []).filter((item) => !stoppedIds.has(item.id))
+        setItems(prepareMenu(available, branch))
+        setAddons(prepareShawarmaAddons(available, branch))
         setLoading(false)
-        return
-      }
-
-      const supabase = createClient(url, key)
-
-      const { data: menuData, error: menuError } = await supabase.from('menu_items').select('*').order('name', { ascending: true })
-
-      if (!active) return
-      if (menuError) {
-        setItems([])
-        setErrorText('Не удалось загрузить меню')
+      } catch {
+        if (!active) return
+        const preparedFallback = prepareMenu(FALLBACK_MENU, branch)
+        const preparedAddons = prepareShawarmaAddons(FALLBACK_MENU, branch)
+        setItems(preparedFallback)
+        setAddons(preparedAddons)
+        setErrorText('Не удалось загрузить меню, показано резервное меню')
         setLoading(false)
-        return
       }
-
-      const { data: stopData, error: stopError } = await supabase
-        .from('stop_list')
-        .select('menu_item_id, is_stopped')
-        .eq('branch_id', branch)
-
-      if (!active) return
-
-      const stoppedIds = new Set((stopData || []).filter((row) => row.is_stopped).map((row) => row.menu_item_id))
-      if (stopError) console.error(stopError)
-
-      const filteredMenu = (menuData || [])
-        .filter((item) => matchesBranch(item, branch))
-        .filter((item) => !stoppedIds.has(item.id))
-        .map((item) => ({ ...item, category: normalizeCategory(item.category) }))
-
-      setItems(filteredMenu)
-      setLoading(false)
     }
 
     loadMenu()
@@ -477,97 +538,68 @@ export default function Page() {
   }, [branch])
 
   useEffect(() => {
-    const availableIds = new Set(items.map((item) => item.id))
+    const availableIds = new Set([...items, ...addons].map((item) => item.id))
     setCart((prev) => prev.filter((item) => availableIds.has(item.id)))
-  }, [items])
+  }, [items, addons])
 
   useEffect(() => {
     if (!checkoutOpen) return
     let active = true
 
-    async function loadPreviewOrderNumber() {
-      setPreviewLoading(true)
+    async function loadPreviewNumber() {
       try {
         const { createClient } = await import('@supabase/supabase-js')
         const url = process.env.NEXT_PUBLIC_SUPABASE_URL
         const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
         if (!url || !key) {
-          if (active) setPreviewOrderNumber('0001')
+          setPreviewNumber('0001')
+          return
+        }
+        const supabase = createClient(url, key)
+        const { data, error } = await supabase
+          .from('orders')
+          .select('short_number, created_at')
+          .eq('branch_id', branch)
+          .order('created_at', { ascending: false })
+          .limit(200)
+
+        if (!active) return
+        if (error) {
+          setPreviewNumber('0001')
           return
         }
 
-        const supabase = createClient(url, key)
-        let nextNumber = null
+        const values = (data || [])
+          .map((row) => String(row.short_number || '').trim())
+          .filter((value) => /^\d{4}$/.test(value))
+          .map((value) => Number(value))
 
-        const { data: counterRow } = await supabase
-          .from('order_counters')
-          .select('*')
-          .eq('branch_id', branch)
-          .limit(1)
-          .maybeSingle()
-
-        if (counterRow) {
-          const candidates = [
-            counterRow.current_number,
-            counterRow.current_value,
-            counterRow.last_number,
-            counterRow.counter,
-            counterRow.value,
-            counterRow.number,
-          ]
-          const numeric = candidates
-            .map((v) => Number(v))
-            .find((v) => Number.isFinite(v) && v >= 0)
-          if (Number.isFinite(numeric)) {
-            nextNumber = numeric + 1
-          }
-        }
-
-        if (!Number.isFinite(nextNumber)) {
-          const { data: ordersRows } = await supabase
-            .from('orders')
-            .select('short_number, created_at')
-            .eq('branch_id', branch)
-            .order('created_at', { ascending: false })
-            .limit(50)
-
-          const maxShort = (ordersRows || []).reduce((max, row) => {
-            const num = Number(String(row?.short_number || '').replace(/\D/g, ''))
-            return Number.isFinite(num) && num > max ? num : max
-          }, 0)
-
-          nextNumber = maxShort + 1
-        }
-
-        if (active) {
-          setPreviewOrderNumber(formatShortNumber(nextNumber || 1))
-        }
+        const next = (values.length ? Math.max(...values) : 0) + 1
+        setPreviewNumber(String(next).padStart(4, '0'))
       } catch {
-        if (active) setPreviewOrderNumber('0001')
-      } finally {
-        if (active) setPreviewLoading(false)
+        if (!active) return
+        setPreviewNumber('0001')
       }
     }
 
-    loadPreviewOrderNumber()
+    loadPreviewNumber()
     return () => {
       active = false
     }
-  }, [checkoutOpen, branch])
+  }, [branch, checkoutOpen])
 
   const groupedItems = useMemo(() => {
     const grouped = {}
     for (const category of CATEGORY_ORDER) grouped[category] = []
     for (const item of items) {
-      const category = normalizeCategory(item.category || 'other')
-      if (!grouped[category]) grouped[category] = []
-      grouped[category].push(item)
+      if (!grouped[item.category]) grouped[item.category] = []
+      grouped[item.category].push(item)
     }
     return grouped
   }, [items])
 
   const cartSummary = useMemo(() => {
-    const byId = new Map(items.map((item) => [item.id, item]))
+    const byId = new Map([...items, ...addons].map((item) => [item.id, item]))
     let count = 0
     let total = 0
 
@@ -585,7 +617,9 @@ export default function Page() {
       .filter(Boolean)
 
     return { items: normalized, count, total }
-  }, [cart, items])
+  }, [cart, items, addons])
+
+  const currentBranch = BRANCHES.find((b) => b.id === branch) || BRANCHES[0]
 
   function getQuantity(itemId) {
     return cart.find((item) => item.id === itemId)?.quantity || 0
@@ -593,7 +627,7 @@ export default function Page() {
 
   function openSuggestionsFor(item, nextCart) {
     const cartIds = new Set(nextCart.map((x) => x.id))
-    const nextSuggestions = buildSuggestions(item, items, cartIds)
+    const nextSuggestions = buildSuggestions(item, items, addons, cartIds)
     if (!nextSuggestions.length) return
     setSuggestionsSource(item)
     setSuggestions(nextSuggestions)
@@ -601,18 +635,20 @@ export default function Page() {
   }
 
   function addToCart(item, options = { openSuggestions: true }) {
+    let nextCart = []
     setCart((prev) => {
       const existing = prev.find((entry) => entry.id === item.id)
-      const nextCart = existing
+      nextCart = existing
         ? prev.map((entry) => (entry.id === item.id ? { ...entry, quantity: entry.quantity + 1 } : entry))
         : [...prev, { id: item.id, quantity: 1 }]
-
-      if (options.openSuggestions) {
-        setTimeout(() => openSuggestionsFor(item, nextCart), 0)
-      }
-
       return nextCart
     })
+
+    if (options.openSuggestions) {
+      setTimeout(() => {
+        openSuggestionsFor(item, nextCart.length ? nextCart : [...cart, { id: item.id, quantity: 1 }])
+      }, 0)
+    }
   }
 
   function increaseQuantity(itemId) {
@@ -620,11 +656,7 @@ export default function Page() {
   }
 
   function decreaseQuantity(itemId) {
-    setCart((prev) =>
-      prev
-        .map((entry) => (entry.id === itemId ? { ...entry, quantity: entry.quantity - 1 } : entry))
-        .filter((entry) => entry.quantity > 0)
-    )
+    setCart((prev) => prev.map((entry) => (entry.id === itemId ? { ...entry, quantity: entry.quantity - 1 } : entry)).filter((entry) => entry.quantity > 0))
   }
 
   function removeFromCart(itemId) {
@@ -637,6 +669,7 @@ export default function Page() {
 
   async function submitOrder() {
     setSubmitError('')
+
     if (!cartSummary.items.length) return setSubmitError('Корзина пуста')
     if (!customerName.trim()) return setSubmitError('Укажите имя')
     if (!customerPhone.trim()) return setSubmitError('Укажите телефон')
@@ -667,17 +700,12 @@ export default function Page() {
       setCustomerName('')
       setCustomerPhone('')
       setComment('')
-      setPreviewOrderNumber('0001')
       try {
         window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ branch, items: [] }))
       } catch {}
 
       const orderNumber = result?.short_number ?? result?.order?.short_number ?? result?.order?.order_number ?? result?.order?.id
-      if (orderNumber) {
-        window.location.href = `/order?number=${encodeURIComponent(orderNumber)}`
-        return
-      }
-      window.location.href = '/order'
+      window.location.href = orderNumber ? `/order?number=${encodeURIComponent(orderNumber)}` : '/order'
     } catch {
       setSubmitError('Не удалось оформить заказ')
     } finally {
@@ -685,25 +713,13 @@ export default function Page() {
     }
   }
 
-  const branchLabel = BRANCHES.find((b) => b.id === branch)?.name || branch
-  const branchPhone = BRANCH_PHONES[branch]
-  const shortBranchLabel = branchLabel.replace('На Виражах — ', '')
-
   return (
     <main style={{ maxWidth: 980, margin: '0 auto', padding: '18px 14px 120px' }}>
-      <div
-        style={{
-          ...cardStyle,
-          padding: 18,
-          marginBottom: 18,
-          background: 'linear-gradient(135deg, #0f255f 0%, #071432 100%)',
-        }}
-      >
+      <div style={{ ...cardStyle, padding: 18, marginBottom: 18, background: 'linear-gradient(135deg, #0f255f 0%, #071432 100%)' }}>
         <div style={{ fontSize: 30, fontWeight: 900, marginBottom: 8 }}>На Виражах</div>
         <div style={{ color: '#cdd9fb', marginBottom: 14 }}>Полное меню с фильтрацией по стоп-листу для выбранной точки.</div>
-
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {BRANCHES.filter((b, idx, arr) => arr.findIndex((x) => x.id === b.id) === idx).map((b) => (
+          {BRANCHES.map((b) => (
             <button
               key={b.id}
               onClick={() => setBranch(b.id)}
@@ -721,188 +737,121 @@ export default function Page() {
             </button>
           ))}
 
-          <a href="/order" style={{ marginLeft: 'auto', color: '#9fd4ff', textDecoration: 'none', alignSelf: 'center' }}>
-            Отследить заказ
-          </a>
-          <a href="/admin" style={{ color: '#9fd4ff', textDecoration: 'none', alignSelf: 'center' }}>
-            Админка
-          </a>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+            <a href="/order" style={{ color: '#d9e4ff', textDecoration: 'none' }}>Отследить заказ</a>
+            <a href="/admin" style={{ color: '#d9e4ff', textDecoration: 'none' }}>Админка</a>
+          </div>
         </div>
       </div>
 
-      {loading ? <div style={{ color: '#cdd9fb', padding: '8px 4px 18px' }}>Загрузка меню...</div> : null}
-      {!loading && errorText ? <div style={{ color: '#ffb4b4', padding: '8px 4px 18px' }}>{errorText}</div> : null}
+      {errorText ? <div style={{ color: '#ffd6a0', marginBottom: 12 }}>{errorText}</div> : null}
+      {loading ? <div style={{ color: '#d9e4ff' }}>Загрузка меню...</div> : null}
 
-      {!loading &&
-        CATEGORY_ORDER.map((categoryKey) => {
-          const categoryItems = groupedItems[categoryKey] || []
-          if (!categoryItems.length) return null
-          return (
-            <AccordionSection
-              key={categoryKey}
-              title={CATEGORY_LABELS[categoryKey] || categoryKey}
-              items={categoryItems}
-              open={!!openMap[categoryKey]}
-              getQuantity={getQuantity}
-              onAdd={addToCart}
-              onIncrease={increaseQuantity}
-              onDecrease={decreaseQuantity}
-              onToggle={() => setOpenMap((prev) => ({ ...prev, [categoryKey]: !prev[categoryKey] }))}
-            />
-          )
-        })}
+      {!loading && CATEGORY_ORDER.map((category) => {
+        const categoryItems = groupedItems[category] || []
+        if (!categoryItems.length) return null
+        return (
+          <AccordionSection
+            key={category}
+            title={CATEGORY_LABELS[category] || category}
+            items={categoryItems}
+            open={Boolean(openMap[category])}
+            onToggle={() => setOpenMap((prev) => ({ ...prev, [category]: !prev[category] }))}
+            getQuantity={getQuantity}
+            onAdd={addToCart}
+            onIncrease={increaseQuantity}
+            onDecrease={decreaseQuantity}
+          />
+        )
+      })}
 
       {cartSummary.count > 0 ? (
-        <div
-          style={{
-            position: 'fixed',
-            left: 12,
-            right: 12,
-            bottom: 12,
-            background: 'rgba(8,21,49,0.96)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 18,
-            padding: 14,
-            boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
-            backdropFilter: 'blur(12px)',
-            zIndex: 50,
-          }}
-        >
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontWeight: 900, fontSize: 18 }}>В корзине: {cartSummary.count}</div>
-              <div style={{ color: '#d9e4ff' }}>На сумму {formatPrice(cartSummary.total)}</div>
+        <div style={{ position: 'fixed', left: 12, right: 12, bottom: 12, zIndex: 50 }}>
+          <div style={{ ...cardStyle, padding: 14, background: 'rgba(6,15,36,0.95)', backdropFilter: 'blur(8px)' }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 18 }}>В корзине: {cartSummary.count}</div>
+                <div style={{ color: '#d9e4ff' }}>На сумму {formatPrice(cartSummary.total)}</div>
+              </div>
+              <button
+                onClick={() => setCheckoutOpen(true)}
+                style={{ marginLeft: 'auto', border: 0, borderRadius: 14, background: '#f4a01d', color: '#111', fontWeight: 900, padding: '14px 18px', cursor: 'pointer' }}
+              >
+                Оформить заказ
+              </button>
             </div>
-            <button
-              onClick={() => setCheckoutOpen(true)}
-              style={{
-                marginLeft: 'auto',
-                border: 0,
-                borderRadius: 14,
-                background: '#f4a01d',
-                color: '#111',
-                fontWeight: 900,
-                padding: '14px 18px',
-                cursor: 'pointer',
-              }}
-            >
-              Оформить заказ
-            </button>
           </div>
         </div>
       ) : null}
 
       {suggestionsOpen ? (
-        <div
-          onClick={() => setSuggestionsOpen(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 65, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 12 }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: '100%', maxWidth: 820, maxHeight: '85vh', overflow: 'auto', background: '#081531', borderRadius: 22, border: '1px solid rgba(255,255,255,0.08)', padding: 18 }}
-          >
+        <div onClick={() => setSuggestionsOpen(false)} style={overlayStyle(65)}>
+          <div onClick={(e) => e.stopPropagation()} style={modalStyle(820)}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 24, fontWeight: 900 }}>Добавить к заказу</div>
                 <div style={{ color: '#c4d1f6', marginTop: 6 }}>
-                  {normalizeCategory(suggestionsSource?.category) === 'shawarma'
-                    ? 'Для шаурмы сначала показываем именно добавки к шаурме.'
-                    : 'Подходящие дополнения к выбранной позиции.'}
+                  {suggestionsSource?.category === 'shawarma' ? 'Показываем именно добавки к шаурме.' : 'Подходящие дополнения к выбранной позиции.'}
                 </div>
               </div>
-              <button onClick={() => setSuggestionsOpen(false)} style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}>
-                ×
-              </button>
+              <button onClick={() => setSuggestionsOpen(false)} style={closeStyle}>×</button>
             </div>
 
             <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
               {suggestions.map((item) => (
-                <div
-                  key={item.id}
-                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-                >
+                <div key={item.id} style={suggestionRowStyle}>
                   <div>
                     <div style={{ fontWeight: 800 }}>{item.name}</div>
-                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>{(CATEGORY_LABELS[normalizeCategory(item.category)] || item.category)} · {formatPrice(item.price)}</div>
+                    <div style={{ color: '#c4d1f6', fontSize: 13 }}>{(CATEGORY_LABELS[item.category] || item.category)} · {formatPrice(item.price)}</div>
                   </div>
-                  <button
-                    onClick={() => addToCart(item, { openSuggestions: false })}
-                    style={{ border: 0, borderRadius: 12, background: '#22c55e', color: '#071432', fontWeight: 900, padding: '10px 14px', cursor: 'pointer' }}
-                  >
-                    Добавить
-                  </button>
+                  <button onClick={() => addToCart(item, { openSuggestions: false })} style={greenButtonSmall}>Добавить</button>
                 </div>
               ))}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
-              <button
-                onClick={() => setSuggestionsOpen(false)}
-                style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, background: 'transparent', color: '#fff', fontWeight: 700, padding: '12px 16px', cursor: 'pointer' }}
-              >
-                Продолжить без добавок
-              </button>
-              <button
-                onClick={() => {
-                  setSuggestionsOpen(false)
-                  setCheckoutOpen(true)
-                }}
-                style={{ border: 0, borderRadius: 14, background: '#f4a01d', color: '#111', fontWeight: 900, padding: '12px 16px', cursor: 'pointer' }}
-              >
-                Перейти к оформлению
-              </button>
+              <button onClick={() => setSuggestionsOpen(false)} style={ghostButton}>Продолжить без добавок</button>
+              <button onClick={() => { setSuggestionsOpen(false); setCheckoutOpen(true) }} style={orangeButton}>Перейти к оформлению</button>
             </div>
           </div>
         </div>
       ) : null}
 
       {checkoutOpen ? (
-        <div
-          onClick={() => setCheckoutOpen(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 60, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 12 }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ width: '100%', maxWidth: 720, maxHeight: '90vh', overflow: 'auto', background: '#081531', borderRadius: 22, border: '1px solid rgba(255,255,255,0.08)', padding: 18 }}
-          >
+        <div onClick={() => setCheckoutOpen(false)} style={overlayStyle(60)}>
+          <div onClick={(e) => e.stopPropagation()} style={modalStyle(720)}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: 24, fontWeight: 900 }}>Оформление заказа {previewLoading ? '…' : previewOrderNumber}</div>
-                <div style={{ color: '#c4d1f6', marginTop: 6 }}>Точка: {branchLabel}</div>
-                <div style={{ color: '#ffd7a1', marginTop: 10, lineHeight: 1.45, maxWidth: 560 }}>
-                  После звонка администратору по номеру {branchPhone || 'указанному для точки'} {shortBranchLabel}, назовите номер своего заказа <strong>{previewOrderNumber}</strong> для подтверждения.
-                </div>
-              </div>
-              <button onClick={() => setCheckoutOpen(false)} style={{ background: 'transparent', border: 0, color: '#fff', fontSize: 28, cursor: 'pointer' }}>
-                ×
-              </button>
+              <div style={{ fontSize: 24, fontWeight: 900 }}>Оформление заказа {previewNumber || '—'}</div>
+              <button onClick={() => setCheckoutOpen(false)} style={closeStyle}>×</button>
             </div>
 
-            <div style={{ display: 'grid', gap: 10, marginTop: 16, marginBottom: 16 }}>
+            <div style={{ color: '#c4d1f6', marginTop: 8 }}>Точка: {currentBranch.name}</div>
+            <div style={{ color: '#ffd08a', marginTop: 8, marginBottom: 16, lineHeight: 1.4 }}>
+              После звонка администратору по номеру {currentBranch.phone}{currentBranch.address ? ` ${currentBranch.address}` : ''}, назовите номер своего заказа для подтверждения.
+            </div>
+
+            <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
               {cartSummary.items.map((item) => (
-                <div
-                  key={item.id}
-                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 12 }}
-                >
-                  <div style={{ minWidth: 0 }}>
+                <div key={item.id} style={checkoutRowStyle}>
+                  <div>
                     <div style={{ fontWeight: 700 }}>{item.name}</div>
                     <div style={{ color: '#c4d1f6', fontSize: 13 }}>{formatPrice(item.price)} × {item.quantity}</div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <button onClick={() => decreaseQuantity(item.id)} style={{ width: 34, height: 34, borderRadius: 10, border: 0, background: '#1f335f', color: '#fff', fontSize: 22, cursor: 'pointer' }}>−</button>
-                    <div style={{ minWidth: 20, textAlign: 'center', fontWeight: 800, fontSize: 18 }}>{item.quantity}</div>
-                    <button onClick={() => increaseQuantity(item.id)} style={{ width: 34, height: 34, borderRadius: 10, border: 0, background: '#22c55e', color: '#071432', fontSize: 22, cursor: 'pointer', fontWeight: 800 }}>+</button>
-                    <button onClick={() => removeFromCart(item.id)} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, background: 'transparent', color: '#ffd7d7', fontWeight: 700, padding: '10px 12px', cursor: 'pointer' }}>Удалить</button>
-                    <div style={{ fontWeight: 800, minWidth: 70, textAlign: 'right' }}>{formatPrice(item.lineTotal)}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button onClick={() => decreaseQuantity(item.id)} style={qtyButtonStyle('#1f335f', '#fff')}>−</button>
+                    <div style={{ minWidth: 20, textAlign: 'center', fontWeight: 800 }}>{item.quantity}</div>
+                    <button onClick={() => increaseQuantity(item.id)} style={qtyButtonStyle('#22c55e', '#071432')}>+</button>
+                    <button onClick={() => removeFromCart(item.id)} style={removeBtnStyle}>Удалить</button>
+                    <div style={{ minWidth: 72, textAlign: 'right', fontWeight: 800 }}>{formatPrice(item.lineTotal)}</div>
                   </div>
                 </div>
               ))}
             </div>
 
             <div style={{ display: 'grid', gap: 10 }}>
-              <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ваше имя" style={{ padding: 14, borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: '#0b1b45', color: '#fff' }} />
-              <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Телефон" style={{ padding: 14, borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: '#0b1b45', color: '#fff' }} />
-              <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий к заказу" rows={3} style={{ padding: 14, borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: '#0b1b45', color: '#fff', resize: 'vertical' }} />
+              <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ваше имя" style={inputStyle} />
+              <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Телефон" style={inputStyle} />
+              <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Комментарий к заказу" rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
             </div>
 
             {submitError ? <div style={{ color: '#ffb4b4', marginTop: 12 }}>{submitError}</div> : null}
@@ -912,15 +861,9 @@ export default function Page() {
                 <div style={{ color: '#c4d1f6' }}>Итого</div>
                 <div style={{ fontWeight: 900, fontSize: 24 }}>{formatPrice(cartSummary.total)}</div>
               </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginLeft: 'auto' }}>
-                <button onClick={clearCart} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, background: 'transparent', color: '#fff', fontWeight: 800, padding: '14px 18px', cursor: 'pointer' }}>
-                  Очистить корзину
-                </button>
-                <button
-                  disabled={submitting}
-                  onClick={submitOrder}
-                  style={{ border: 0, borderRadius: 14, background: submitting ? '#64748b' : '#22c55e', color: '#071432', fontWeight: 900, padding: '14px 20px', cursor: submitting ? 'default' : 'pointer' }}
-                >
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={clearCart} style={ghostButton}>Очистить корзину</button>
+                <button disabled={submitting} onClick={submitOrder} style={{ ...greenButton, background: submitting ? '#64748b' : '#22c55e' }}>
                   {submitting ? 'Оформляем...' : 'Подтвердить заказ'}
                 </button>
               </div>
@@ -930,4 +873,113 @@ export default function Page() {
       ) : null}
     </main>
   )
+}
+
+const overlayStyle = (zIndex) => ({
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0,0,0,0.55)',
+  zIndex,
+  display: 'flex',
+  alignItems: 'flex-end',
+  justifyContent: 'center',
+  padding: 12,
+})
+
+const modalStyle = (maxWidth) => ({
+  width: '100%',
+  maxWidth,
+  maxHeight: '90vh',
+  overflow: 'auto',
+  background: '#081531',
+  borderRadius: 22,
+  border: '1px solid rgba(255,255,255,0.08)',
+  padding: 18,
+})
+
+const closeStyle = {
+  background: 'transparent',
+  border: 0,
+  color: '#fff',
+  fontSize: 28,
+  cursor: 'pointer',
+}
+
+const suggestionRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  alignItems: 'center',
+  padding: '12px 14px',
+  borderRadius: 14,
+  background: 'rgba(255,255,255,0.04)',
+  border: '1px solid rgba(255,255,255,0.08)',
+}
+
+const greenButtonSmall = {
+  border: 0,
+  borderRadius: 12,
+  background: '#22c55e',
+  color: '#071432',
+  fontWeight: 900,
+  padding: '10px 14px',
+  cursor: 'pointer',
+}
+
+const orangeButton = {
+  border: 0,
+  borderRadius: 14,
+  background: '#f4a01d',
+  color: '#111',
+  fontWeight: 900,
+  padding: '12px 16px',
+  cursor: 'pointer',
+}
+
+const ghostButton = {
+  border: '1px solid rgba(255,255,255,0.12)',
+  borderRadius: 14,
+  background: 'transparent',
+  color: '#fff',
+  fontWeight: 700,
+  padding: '12px 16px',
+  cursor: 'pointer',
+}
+
+const greenButton = {
+  border: 0,
+  borderRadius: 14,
+  color: '#071432',
+  fontWeight: 900,
+  padding: '14px 20px',
+  cursor: 'pointer',
+}
+
+const checkoutRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  alignItems: 'center',
+  padding: '10px 12px',
+  background: 'rgba(255,255,255,0.04)',
+  borderRadius: 12,
+  flexWrap: 'wrap',
+}
+
+const removeBtnStyle = {
+  border: '1px solid rgba(255,255,255,0.14)',
+  borderRadius: 12,
+  background: 'rgba(255,255,255,0.04)',
+  color: '#ffd6d6',
+  fontWeight: 800,
+  padding: '10px 12px',
+  cursor: 'pointer',
+}
+
+const inputStyle = {
+  padding: 14,
+  borderRadius: 12,
+  border: '1px solid rgba(255,255,255,0.12)',
+  background: '#0b1b45',
+  color: '#fff',
 }
