@@ -210,7 +210,7 @@ function StopListTab({ defaultBranch }) {
     if (!supabase) return
     setLoading(true)
     const [{ data: menu }, { data: stop }] = await Promise.all([
-      supabase.from('menu_items').select('id,name,category,variant,price').order('name'),
+      supabase.from('menu_items').select('id,name,category,variant,price,image_url').order('name'),
       supabase.from('stop_list').select('menu_item_id').eq('branch_id', branchId).eq('is_stopped', true),
     ])
     setMenuItems(menu || [])
@@ -317,17 +317,23 @@ function StopListTab({ defaultBranch }) {
                     opacity: isToggling ? 0.6 : 1,
                     transition:'all 0.15s',
                   }}>
-                    <div>
-                      <div style={{ fontWeight:700, fontSize:14, color: isStopped ? '#9ca3af' : '#f0f4ff' }}>
-                        {isStopped && <span style={{ marginRight:6 }}>🚫</span>}
-                        {item.name}
-                        {item.variant && (
-                          <span style={{ marginLeft:6, fontSize:11, color:'#6b7db5' }}>
-                            {item.variant==='chicken'?'курица':item.variant==='pork'?'свинина':item.variant}
-                          </span>
-                        )}
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      {item.image_url
+                        ? <img src={item.image_url} alt={item.name} style={{ width:40, height:40, borderRadius:8, objectFit:'cover', flexShrink:0, opacity: isStopped ? 0.4 : 1 }} />
+                        : <div style={{ width:40, height:40, borderRadius:8, background:'rgba(255,255,255,0.05)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>🍽</div>
+                      }
+                      <div>
+                        <div style={{ fontWeight:700, fontSize:14, color: isStopped ? '#9ca3af' : '#f0f4ff' }}>
+                          {isStopped && <span style={{ marginRight:6 }}>🚫</span>}
+                          {item.name}
+                          {item.variant && (
+                            <span style={{ marginLeft:6, fontSize:11, color:'#6b7db5' }}>
+                              {item.variant==='chicken'?'курица':item.variant==='pork'?'свинина':item.variant}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize:12, color:'#6b7db5', marginTop:2 }}>{fmt(item.price)}</div>
                       </div>
-                      <div style={{ fontSize:12, color:'#6b7db5', marginTop:2 }}>{fmt(item.price)}</div>
                     </div>
 
                     {/* Тоггл */}
