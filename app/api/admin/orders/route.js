@@ -39,7 +39,31 @@ export async function GET(req) {
       }
     }
 
-    return Response.json({ orders: orders || [], itemsMap })
+    // Загружаем отзывы для выданных заказов
+    const doneIds = (orders || [])
+      .filter(o => o.status === 'completed')
+      .map(o => o.id)
+
+    let reviewsMap = {}
+    if (doneIds.length) {
+      const { data: reviews } = await supabase
+        .from('order_reviews')
+        .select('order_id, rating, comment')
+        .in('order_id', doneIds)
+
+      for (const r of reviews || []) {
+        reviewsMap[r.order_id] = r
+      }
+    }
+
+    // Добавляем rating прямо в объект заказа
+    const ordersWithReviews = (orders || []).map(o => ({
+      ...o,
+      review_rating: reviewsMap[o.id]?.rating || null,
+      review_comment: reviewsMap[o.id]?.comment || null,
+    }))
+
+    return Response.json({ orders: ordersWithReviews, itemsMap })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
   }

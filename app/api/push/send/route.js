@@ -16,6 +16,10 @@ const STATUS_MESSAGES = {
     title: '🔔 Заказ готов!',
     body: 'Ваш заказ готов к выдаче. Подходите!'
   },
+  completed: {
+    title: '⭐ Как вам заказ?',
+    body: 'Оцените ваш заказ — это займёт 10 секунд!'
+  },
 }
 
 // POST /api/push/send — отправляем push клиенту по order_id

@@ -4,6 +4,86 @@ import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
+// ─── ReviewForm ───────────────────────────────────────────────────────────────
+
+function ReviewForm({ orderId, onDone }) {
+  const [rating,    setRating]    = useState(0)
+  const [hovered,   setHovered]   = useState(0)
+  const [comment,   setComment]   = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [done,      setDone]      = useState(false)
+
+  async function submit() {
+    if (!rating || !supabase) return
+    setSubmitting(true)
+    try {
+      await supabase.from('order_reviews').upsert({
+        order_id: orderId,
+        rating,
+        comment: comment.trim() || null,
+      }, { onConflict: 'order_id' })
+      setDone(true)
+      onDone && onDone(rating)
+    } catch {}
+    finally { setSubmitting(false) }
+  }
+
+  if (done) {
+    return (
+      <div style={{ marginTop:20, padding:'16px', borderRadius:16, background:'rgba(34,197,94,0.08)', border:'1px solid rgba(34,197,94,0.2)', textAlign:'center' }}>
+        <div style={{ fontSize:32, marginBottom:8 }}>🙏</div>
+        <div style={{ fontWeight:700, color:'#a0f0c0', fontSize:15 }}>Спасибо за оценку!</div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ marginTop:20, padding:'16px', borderRadius:16, background:'rgba(244,160,29,0.06)', border:'1px solid rgba(244,160,29,0.2)' }}>
+      <div style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:700, fontSize:14, marginBottom:14, color:'#f4a01d' }}>
+        ⭐ Оцените заказ
+      </div>
+
+      {/* Звёздочки */}
+      <div style={{ display:'flex', gap:8, marginBottom:14, justifyContent:'center' }}>
+        {[1,2,3,4,5].map(star => (
+          <button
+            key={star}
+            onClick={() => setRating(star)}
+            onMouseEnter={() => setHovered(star)}
+            onMouseLeave={() => setHovered(0)}
+            style={{
+              background:'transparent', border:0, cursor:'pointer',
+              fontSize:36, lineHeight:1, padding:4,
+              filter: (hovered || rating) >= star ? 'none' : 'grayscale(1) opacity(0.3)',
+              transform: (hovered || rating) >= star ? 'scale(1.1)' : 'scale(1)',
+              transition:'all 0.1s',
+            }}
+          >⭐</button>
+        ))}
+      </div>
+
+      {rating > 0 && (
+        <>
+          <textarea
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            placeholder="Комментарий (необязательно)"
+            rows={2}
+            style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', borderRadius:10, border:'1px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.04)', color:'#f0f4ff', fontFamily:"'Onest',sans-serif", fontSize:14, outline:'none', resize:'none', marginBottom:10 }}
+          />
+          <button
+            onClick={submit}
+            disabled={submitting}
+            style={{ width:'100%', border:0, borderRadius:10, background:'#f4a01d', color:'#07122e', fontFamily:"'Unbounded',sans-serif", fontWeight:700, fontSize:14, padding:'12px', cursor:submitting?'default':'pointer', opacity:submitting?0.7:1 }}
+          >
+            {submitting ? 'Отправляем…' : 'Отправить оценку'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 const BRANCH_NAMES = {
   'nv-fr-002': 'На Виражах — Аэропорт',
   'nv-sh-001': 'На Виражах — Конечная',
@@ -65,8 +145,10 @@ function Inner() {
   const [input, setInput] = useState('')
   const [order, setOrder] = useState(null)
   const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+  const [review,   setReview]   = useState(null) // существующий отзыв
+  const [showReview, setShowReview] = useState(false)
 
   async function search(forced) {
     const val = String(forced ?? input).trim()
@@ -103,7 +185,10 @@ function Inner() {
   useEffect(() => {
     if (!supabase || !order?.id) return
     const ch = supabase.channel(`order-${order.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${order.id}` }, p => setOrder(p.new))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${order.id}` }, p => {
+        setOrder(p.new)
+        if (p.new.status === 'completed') setShowReview(true)
+      })
       .subscribe()
     return () => supabase.removeChannel(ch)
   }, [order?.id])

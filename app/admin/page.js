@@ -38,6 +38,14 @@ function elapsed(ts) {
   if (m < 60) return `${m} мин`
   return `${Math.floor(m/60)} ч ${m%60} мин`
 }
+
+function timerColor(ts, status) {
+  if (!ts || ['completed','cancelled','expired'].includes(status)) return null
+  const m = Math.floor((Date.now()-new Date(ts))/60000)
+  if (m < 10) return { color:'#22c55e', label:'●', urgency: 0 }
+  if (m < 20) return { color:'#f4a01d', label:'●', urgency: 1 }
+  return { color:'#ef4444', label:'●', urgency: 2 }
+}
 function fmtTime(v) {
   if (!v) return ''
   const d = new Date(v)
@@ -110,8 +118,8 @@ function OrderCard({ order, items, branchLabel }) {
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ id: order.id, status: v }),
       })
-      // Отправляем push клиенту при подтверждении или готовности
-      if (v === 'confirmed' || v === 'ready') {
+      // Отправляем push клиенту при изменении статуса
+      if (['confirmed', 'ready', 'completed'].includes(v)) {
         fetch('/api/push/send', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
@@ -133,7 +141,22 @@ function OrderCard({ order, items, branchLabel }) {
           <div style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:900, fontSize:28, color:'#f4a01d', lineHeight:1 }}>
             {order.short_number || order.order_number || order.id.slice(0,8)}
           </div>
-          <div style={{ color:'#6b7db5', fontSize:12, marginTop:4 }}>
+          {/* Таймер-полоска */}
+          {!['completed','cancelled','expired'].includes(order.status) && (() => {
+            const mins = Math.floor((Date.now()-new Date(order.created_at))/60000)
+            const pct  = Math.min(100, (mins/30)*100)
+            const col  = mins < 10 ? '#22c55e' : mins < 20 ? '#f4a01d' : '#ef4444'
+            return (
+              <div style={{ marginTop:6, height:3, borderRadius:2, background:'rgba(255,255,255,0.08)', overflow:'hidden', width:'100%' }}>
+                <div style={{ height:'100%', width:`${pct}%`, background:col, borderRadius:2, transition:'width 30s linear' }} />
+              </div>
+            )
+          })()}
+          <div style={{ color:'#6b7db5', fontSize:12, marginTop:4, display:'flex', alignItems:'center', gap:6 }}>
+            {(() => {
+              const t = timerColor(order.created_at, order.status)
+              return t ? <span style={{ color: t.color, fontSize:10, animation: t.urgency === 2 ? 'pulse 1s infinite' : 'none' }}>{t.label}</span> : null
+            })()}
             {fmtTime(order.created_at)} · {el}{branchLabel ? ` · ${branchLabel}` : ''}
           </div>
         </div>
@@ -448,6 +471,15 @@ export default function AdminPage() {
 
   useEffect(() => {
     const newCnt = orders.filter(o => o.status==='new').length
+
+    // Обновляем заголовок вкладки
+    if (newCnt > 0) {
+      document.title = `(${newCnt}) Админка — На Виражах`
+    } else {
+      document.title = 'Админка — На Виражах'
+    }
+
+    // Звук при новых заказах
     if (prevNewRef.current !== -1 && newCnt > prevNewRef.current) {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -482,6 +514,14 @@ export default function AdminPage() {
   async function logout() { await supabase.auth.signOut(); setSession(null) }
 
   if (!authChecked) return null
+
+  // Добавляем стиль для анимации
+  if (typeof document !== 'undefined' && !document.getElementById('admin-styles')) {
+    const style = document.createElement('style')
+    style.id = 'admin-styles'
+    style.textContent = '@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }'
+    document.head.appendChild(style)
+  }
   if (!session) return <Login onLogin={setSession} />
 
   return (
