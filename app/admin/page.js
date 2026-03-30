@@ -620,12 +620,20 @@ export default function AdminPage() {
               {showDone && (
                 <div style={{ display:'grid', gap:6, opacity:0.6 }}>
                   {done.map(o => (
-                    <div key={o.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.05)', fontSize:14, gap:10, flexWrap:'wrap' }}>
-                      <span style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:700, color:'#6b7db5', minWidth:48 }}>{o.short_number||o.id.slice(0,8)}</span>
-                      <span style={{ color:'#4a5f8a', fontSize:13 }}>{bName(o.branch_id)}</span>
-                      <span style={{ color:'#4a5f8a', fontSize:13 }}>{o.customer_name||'—'}</span>
-                      <span style={{ color:COLORS[o.status], fontSize:12, fontWeight:700 }}>{LABELS[o.status]}</span>
-                      <span style={{ color:'#8fa3cc', fontWeight:700, marginLeft:'auto' }}>{fmt(o.total)}</span>
+                    <div key={o.id} style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:`1px solid ${o.review_rating ? 'rgba(244,160,29,0.2)' : 'rgba(255,255,255,0.05)'}`, fontSize:14 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                        <span style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:700, color:'#6b7db5', minWidth:48 }}>{o.short_number||o.id.slice(0,8)}</span>
+                        <span style={{ color:'#4a5f8a', fontSize:13 }}>{bName(o.branch_id)}</span>
+                        <span style={{ color:'#4a5f8a', fontSize:13 }}>{o.customer_name||'—'}</span>
+                        <span style={{ color:COLORS[o.status], fontSize:12, fontWeight:700 }}>{LABELS[o.status]}</span>
+                        <span style={{ color:'#8fa3cc', fontWeight:700, marginLeft:'auto' }}>{fmt(o.total)}</span>
+                      </div>
+                      {o.review_rating && (
+                        <div style={{ marginTop:8, paddingTop:8, borderTop:'1px solid rgba(255,255,255,0.05)', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                          <span style={{ fontSize:16 }}>{'⭐'.repeat(o.review_rating)}</span>
+                          {o.review_comment && <span style={{ color:'#8fa3cc', fontSize:13, fontStyle:'italic' }}>«{o.review_comment}»</span>}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
