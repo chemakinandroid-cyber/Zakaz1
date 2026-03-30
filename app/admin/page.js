@@ -379,29 +379,47 @@ export default function AdminPage() {
     if (!supabase) { setAuthChecked(true); return }
     supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session)
-      if (data.session?.user?.id) {
-        // Загружаем привязку к точке
-        const { data: adminRow } = await supabase
-          .from('admin_users')
-          .select('branch_id')
-          .eq('user_id', data.session.user.id)
-          .maybeSingle()
-        // Если записи нет → мастер (null), если есть → берём branch_id
-        setAssignedBranch(adminRow ? (adminRow.branch_id || null) : null)
+      if (data.session?.access_token) {
+        // Читаем привязку к точке через API (service role, надёжно)
+        try {
+          const res = await fetch('/api/admin/me', {
+            headers: { Authorization: `Bearer ${data.session.access_token}` }
+          })
+          const json = await res.json()
+          setAssignedBranch(json.branch_id ?? null)
+        } catch {
+          setAssignedBranch(null)
+        }
       } else {
         setAssignedBranch(null)
       }
       setAuthChecked(true)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_,s) => setSession(s))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, s) => {
+      setSession(s)
+      if (s?.access_token) {
+        try {
+          const res = await fetch('/api/admin/me', {
+            headers: { Authorization: `Bearer ${s.access_token}` }
+          })
+          const json = await res.json()
+          setAssignedBranch(json.branch_id ?? null)
+        } catch {
+          setAssignedBranch(null)
+        }
+      } else {
+        setAssignedBranch(null)
+      }
+    })
     return () => subscription.unsubscribe()
   }, [])
 
   async function load() {
     if (!session) return
+    if (assignedBranch === undefined) return // ещё не загрузили привязку — ждём
     setLoading(true)
     // Если у пользователя назначена точка — принудительно фильтруем по ней
-    const effectiveBranch = assignedBranch !== null && assignedBranch !== undefined ? assignedBranch : branch
+    const effectiveBranch = assignedBranch ? assignedBranch : branch
     const url = effectiveBranch === 'all' || !effectiveBranch ? '/api/admin/orders' : `/api/admin/orders?branch_id=${effectiveBranch}`
     try {
       const res = await fetch(url)
@@ -412,7 +430,7 @@ export default function AdminPage() {
     setLoading(false)
   }
 
-  useEffect(() => { if (session) load() }, [session, branch])
+  useEffect(() => { if (session && assignedBranch !== undefined) load() }, [session, branch, assignedBranch])
 
   useEffect(() => {
     if (!supabase || !session) return
