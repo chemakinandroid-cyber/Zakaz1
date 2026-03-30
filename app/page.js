@@ -113,10 +113,17 @@ function UpsellScreen({ cart, items, onAddItem, onProceed }) {
     if (sauces.length) sections.push({ key:'sauces', title:'Соус к картошке?', subtitle:'', items: sauces.slice(0,4) })
   }
 
-  // 4. Напитки (если нет)
+  // 4. Напитки (если нет) — показываем все, некофейные сначала
   if (!hasDrinks) {
-    const drinks = items.filter(i => i.category === 'drinks' && Number(i.price) > 0 && !i.coming_soon)
-    if (drinks.length) sections.push({ key:'drinks', title:'Что-нибудь выпить?', subtitle:'Напитки к заказу', items: drinks.slice(0,4) })
+    const coffeeKeywords = ['эспрессо','американо','капучино','латте','раф','флэт','макиато','мокко']
+    const drinks = items
+      .filter(i => i.category === 'drinks' && Number(i.price) > 0 && !i.coming_soon)
+      .sort((a, b) => {
+        const aIsCoffee = coffeeKeywords.some(k => a.name.toLowerCase().includes(k)) ? 1 : 0
+        const bIsCoffee = coffeeKeywords.some(k => b.name.toLowerCase().includes(k)) ? 1 : 0
+        return aIsCoffee - bIsCoffee // некофейные сначала
+      })
+    if (drinks.length) sections.push({ key:'drinks', title:'Что-нибудь выпить?', subtitle:'Напитки к заказу', items: drinks })
   }
 
   const cartIds = new Set(cart.map(e=>e.id))
@@ -271,9 +278,76 @@ function ModifierModal({ item, allAddons, onConfirm, onSkip }) {
   )
 }
 
+
+// ─── ItemModal — карточка товара ─────────────────────────────────────────────
+
+function ItemModal({ item, qty, onAdd, onInc, onDec, onClose, isShawarma }) {
+  const unavail = item.coming_soon || Number(item.price) <= 0
+  const inCart  = qty > 0
+
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',zIndex:85,display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'0 8px 8px'}}>
+      <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:560,background:'linear-gradient(160deg,#0d1f4e 0%,#07122e 100%)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:20,padding:20,boxShadow:'0 8px 32px rgba(0,0,0,0.4)'}}>
+
+        {/* Шапка */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:"'Unbounded',sans-serif",fontWeight:900,fontSize:18,lineHeight:1.3,marginBottom:6}}>
+              {item.name}
+            </div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+              {item.variant && (
+                <span style={{fontSize:12,padding:'3px 10px',borderRadius:999,background:'rgba(255,255,255,0.07)',color:'#a0b4e0'}}>
+                  {item.variant==='chicken'?'🐔 курица':item.variant==='pork'?'🐷 свинина':item.variant}
+                </span>
+              )}
+              {item.spicy && <span style={{fontSize:13}}>🌶 острое</span>}
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:'transparent',border:0,color:'#6b7db5',fontSize:26,cursor:'pointer',lineHeight:1,padding:'0 0 0 12px',flexShrink:0}}>×</button>
+        </div>
+
+        {/* Описание */}
+        {item.description && (
+          <div style={{fontSize:14,color:'#8fa3cc',lineHeight:1.6,marginBottom:16,padding:'12px 14px',background:'rgba(255,255,255,0.03)',borderRadius:12}}>
+            {item.description}
+          </div>
+        )}
+
+        {/* Цена и кнопки */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,borderTop:'1px solid rgba(255,255,255,0.07)',paddingTop:16}}>
+          <div>
+            {unavail
+              ? <span style={{color:'#6b7db5',fontSize:14}}>Скоро в продаже</span>
+              : <span style={{fontFamily:"'Unbounded',sans-serif",fontWeight:900,fontSize:24,color:'#f4a01d'}}>{fmt(item.price)}</span>
+            }
+          </div>
+
+          {!unavail && (
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              {inCart && <QtyCtrl qty={qty} onInc={()=>onInc(item.id)} onDec={()=>onDec(item.id)} />}
+              {!inCart && (
+                <button
+                  onClick={() => { onAdd(item); onClose() }}
+                  style={{...btnG, padding:'12px 22px', fontSize:15, borderRadius:12}}
+                >
+                  {isShawarma ? 'Выбрать добавки →' : 'В корзину'}
+                </button>
+              )}
+              {inCart && (
+                <span style={{color:'#22c55e',fontWeight:700,fontSize:14}}>✓ В корзине</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── ProductCard ──────────────────────────────────────────────────────────────
 
-function ProductCard({ item, cartEntries, onAdd, onInc, onDec, isShawarma, allAddons }) {
+function ProductCard({ item, cartEntries, onAdd, onInc, onDec, isShawarma, allAddons, onCardClick }) {
   const unavail = item.coming_soon || Number(item.price) <= 0
   // Все строки корзины для этого товара (может быть несколько с разными добавками)
   const totalQty = cartEntries.reduce((s,e)=>s+e.qty, 0)
@@ -283,7 +357,10 @@ function ProductCard({ item, cartEntries, onAdd, onInc, onDec, isShawarma, allAd
     <div style={{...card,display:'grid',gridTemplateColumns:'1fr auto',gap:12,alignItems:'start'}}>
       <div>
         <div style={{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap',marginBottom:4}}>
-          <span style={{fontFamily:"'Unbounded',sans-serif",fontWeight:700,fontSize:15,lineHeight:1.3}}>{item.name}</span>
+          <span
+            onClick={()=>onCardClick&&onCardClick(item)}
+            style={{fontFamily:"'Unbounded',sans-serif",fontWeight:700,fontSize:15,lineHeight:1.3,cursor:'pointer',borderBottom:'1px dashed rgba(255,255,255,0.2)'}}
+          >{item.name}</span>
           {item.variant && (
             <span style={{fontSize:11,padding:'2px 8px',borderRadius:999,background:'rgba(255,255,255,0.07)',color:'#a0b4e0'}}>
               {item.variant==='chicken'?'🐔 курица':item.variant==='pork'?'🐷 свинина':item.variant}
@@ -336,7 +413,7 @@ function ProductCard({ item, cartEntries, onAdd, onInc, onDec, isShawarma, allAd
 
 // ─── CategorySection ──────────────────────────────────────────────────────────
 
-function CatSection({ catKey, items, openMap, toggle, getEntries, onAdd, onInc, onDec, allAddons }) {
+function CatSection({ catKey, items, openMap, toggle, getEntries, onAdd, onInc, onDec, allAddons, onCardClick }) {
   const isOpen    = openMap[catKey]
   const label     = CATEGORY_LABELS[catKey] || catKey
   const totalInCart = items.reduce((s,i)=>s+getEntries(i.id).reduce((ss,e)=>ss+e.qty,0), 0)
@@ -376,6 +453,7 @@ function CatSection({ catKey, items, openMap, toggle, getEntries, onAdd, onInc, 
                 onDec={onDec}
                 isShawarma={isShawarma}
                 allAddons={allAddons}
+                onCardClick={onCardClick}
               />
             </div>
           ))}
@@ -509,6 +587,7 @@ export default function Page() {
   const [cart,           setCart]           = useState([])
   const [openMap,        setOpenMap]        = useState({shawarma:true,burgers:true,fries:true})
   const [modifierTarget, setModifierTarget] = useState(null) // item для которого открыта модалка добавок
+  const [itemModal,      setItemModal]      = useState(null)  // item для карточки товара
   const [checkoutOpen,   setCheckoutOpen]   = useState(false)
   const [upsellOpen,     setUpsellOpen]     = useState(false)
   const [successOrder,   setSuccessOrder]   = useState(null)
@@ -743,6 +822,7 @@ export default function Page() {
             getEntries={getEntries}
             onAdd={handleAdd} onInc={incQty} onDec={decQty}
             allAddons={addons}
+            onCardClick={setItemModal}
           />
         )
       })}
@@ -782,6 +862,19 @@ export default function Page() {
             })
           }}
           onProceed={() => { setUpsellOpen(false); setCheckoutOpen(true) }}
+        />
+      )}
+
+      {/* Карточка товара */}
+      {itemModal && (
+        <ItemModal
+          item={itemModal}
+          qty={cartDetails.list.find(e=>e.id===itemModal.id)?.qty || 0}
+          onAdd={handleAdd}
+          onInc={incQty}
+          onDec={decQty}
+          isShawarma={itemModal.category==='shawarma'}
+          onClose={()=>setItemModal(null)}
         />
       )}
 
