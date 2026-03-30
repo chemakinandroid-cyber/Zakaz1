@@ -170,7 +170,22 @@ function Inner() {
       if (!best) return setError('Заказ не найден')
       const { data: oi, error: e2 } = await supabase.from('order_items').select('*').eq('order_id', best.id).order('created_at')
       if (e2) throw e2
-      setOrder(best); setItems(oi || [])
+      setOrder(best)
+      setItems(oi || [])
+
+      // Для выданных заказов — загружаем отзыв и показываем форму
+      if (best.status === 'completed') {
+        const { data: rv } = await supabase
+          .from('order_reviews')
+          .select('rating, comment')
+          .eq('order_id', best.id)
+          .maybeSingle()
+        setReview(rv || null)
+        setShowReview(true)
+      } else {
+        setShowReview(false)
+        setReview(null)
+      }
     } catch { setError('Ошибка загрузки заказа') }
     finally { setLoading(false) }
   }
