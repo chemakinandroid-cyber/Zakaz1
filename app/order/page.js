@@ -275,6 +275,18 @@ function Inner() {
             <div style={{ color: '#8fa3cc', fontSize: 14 }}>Итого</div>
             <div style={{ fontFamily: "'Unbounded',sans-serif", fontWeight: 900, fontSize: 20 }}>{fmt(order.total)}</div>
           </div>
+
+          {/* Форма отзыва для выданных заказов */}
+          {order.status === 'completed' && (
+            showReview
+              ? review
+                ? <div style={{ marginTop:16, padding:'12px 14px', borderRadius:12, background:'rgba(34,197,94,0.06)', border:'1px solid rgba(34,197,94,0.15)', display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:20 }}>{'⭐'.repeat(review.rating)}</span>
+                    {review.comment && <span style={{ color:'#8fa3cc', fontSize:13 }}>{review.comment}</span>}
+                  </div>
+                : <ReviewForm orderId={order.id} onDone={rating => setReview({ rating, comment:'' })} />
+              : <ReviewForm orderId={order.id} onDone={rating => setReview({ rating, comment:'' })} />
+          )}
         </div>
       )}
     </main>
