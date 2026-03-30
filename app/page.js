@@ -913,25 +913,66 @@ export default function Page() {
     <main style={{maxWidth:860,margin:'0 auto',padding:'16px 12px 120px'}}>
 
       {/* Шапка */}
-      <div style={{...card,marginBottom:14,background:'linear-gradient(135deg,#0f2660 0%,#07122e 100%)'}}>
-        <div style={{fontFamily:"'Unbounded',sans-serif",fontWeight:900,fontSize:26,marginBottom:4}}>На Виражах</div>
-        <div style={{color:'#6b7db5',fontSize:13,marginBottom:14}}>Выберите точку и сделайте заказ</div>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-          {BRANCHES.map(b=>(
-            <button key={b.id} onClick={()=>{setBranchId(b.id);setCart([])}} style={{
-              border:branchId===b.id?'2px solid #f4a01d':'1px solid rgba(255,255,255,0.1)',
-              background:branchId===b.id?'rgba(244,160,29,0.12)':'rgba(255,255,255,0.03)',
-              color:branchId===b.id?'#f4a01d':'#c8d5f5',
-              borderRadius:999,padding:'9px 16px',
-              fontFamily:"'Onest',sans-serif",fontWeight:700,fontSize:14,cursor:'pointer',
-            }}>{b.name}</button>
-          ))}
-          <div style={{marginLeft:'auto',display:'flex',gap:16}}>
-            <a href="/order" style={{color:'#6b8ecf',fontSize:13,textDecoration:'none'}}>Мой заказ</a>
-            <a href="/admin" style={{color:'#6b8ecf',fontSize:13,textDecoration:'none'}}>Админ</a>
-          </div>
+      {/* Шапка с логотипом */}
+      <div style={{
+        marginBottom:14,
+        borderRadius:20,
+        overflow:'hidden',
+        boxShadow:'0 8px 32px rgba(0,0,0,0.4)',
+        position:'relative',
+        background:'linear-gradient(135deg,#0f2660 0%,#07122e 100%)',
+        border:'1px solid rgba(255,255,255,0.07)',
+      }}>
+        {/* Фоновый логотип — большой и полупрозрачный */}
+        <div style={{
+          position:'absolute', inset:0, overflow:'hidden',
+          display:'flex', alignItems:'center', justifyContent:'flex-end',
+          pointerEvents:'none',
+        }}>
+          <img
+            src="/logo.png"
+            alt=""
+            style={{
+              height:'160%', width:'auto',
+              opacity:0.07,
+              transform:'translateX(10%) translateY(-5%)',
+              filter:'blur(1px)',
+            }}
+          />
         </div>
-        {branch.phone && <div style={{marginTop:12,fontSize:13,color:'#6b7db5'}}>📞 {branch.phone}{branch.address?` · 📍 ${branch.address}`:''}</div>}
+
+        {/* Контент поверх */}
+        <div style={{position:'relative',zIndex:1,padding:'16px 18px'}}>
+          {/* Логотип + навигация */}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+            <img src="/logo.png" alt="На Виражах" style={{height:56,width:'auto',objectFit:'contain'}} />
+            <div style={{display:'flex',gap:16}}>
+              <a href="/order" style={{color:'rgba(255,255,255,0.5)',fontSize:13,textDecoration:'none'}}>Мой заказ</a>
+              <a href="/admin" style={{color:'rgba(255,255,255,0.5)',fontSize:13,textDecoration:'none'}}>Админ</a>
+            </div>
+          </div>
+
+          {/* Выбор точки */}
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            {BRANCHES.map(b=>(
+              <button key={b.id} onClick={()=>{setBranchId(b.id);setCart([])}} style={{
+                border:branchId===b.id?'2px solid #f4a01d':'1px solid rgba(255,255,255,0.12)',
+                background:branchId===b.id?'rgba(244,160,29,0.15)':'rgba(255,255,255,0.05)',
+                color:branchId===b.id?'#f4a01d':'#c8d5f5',
+                borderRadius:999,padding:'9px 18px',
+                fontFamily:"'Onest',sans-serif",fontWeight:700,fontSize:14,cursor:'pointer',
+                backdropFilter:'blur(8px)',
+              }}>{b.name}</button>
+            ))}
+          </div>
+
+          {branch.phone && (
+            <div style={{marginTop:12,fontSize:13,color:'rgba(255,255,255,0.4)',display:'flex',gap:12,flexWrap:'wrap'}}>
+              <a href={`tel:${branch.phone.replace(/\s/g,'')}`} style={{color:'rgba(255,255,255,0.4)',textDecoration:'none'}}>📞 {branch.phone}</a>
+              {branch.address && <span>📍 {branch.address}</span>}
+            </div>
+          )}
+        </div>
       </div>
 
       {loading  && <div style={{color:'#6b7db5',padding:'20px 4px'}}>Загружаем меню…</div>}
