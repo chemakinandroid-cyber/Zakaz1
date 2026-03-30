@@ -199,8 +199,8 @@ function OrderCard({ order, items, branchLabel }) {
 
 // ─── StopListTab ──────────────────────────────────────────────────────────────
 
-function StopListTab() {
-  const [stopBranch,  setStopBranch]  = useState(BRANCHES[0].id)
+function StopListTab({ defaultBranch }) {
+  const [stopBranch,  setStopBranch]  = useState(defaultBranch || BRANCHES[0].id)
   const [menuItems,   setMenuItems]   = useState([])
   const [stopSet,     setStopSet]     = useState(new Set()) // id позиций в стопе
   const [loading,     setLoading]     = useState(true)
@@ -263,9 +263,9 @@ function StopListTab() {
 
   return (
     <div>
-      {/* Вкладки точек */}
+      {/* Вкладки точек — скрываем если назначена конкретная точка */}
       <div style={{ display:'flex', gap:8, marginBottom:20, flexWrap:'wrap' }}>
-        {BRANCHES.map(b => (
+        {BRANCHES.filter(b => !defaultBranch || b.id === defaultBranch).map(b => (
           <button key={b.id} onClick={() => setStopBranch(b.id)} style={{
             border: stopBranch===b.id ? '2px solid #f4a01d' : '1px solid rgba(255,255,255,0.1)',
             background: stopBranch===b.id ? 'rgba(244,160,29,0.12)' : 'rgba(255,255,255,0.03)',
@@ -363,9 +363,10 @@ function StopListTab() {
 // ─── Admin ────────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
-  const [session,     setSession]     = useState(null)
-  const [authChecked, setAuthChecked] = useState(false)
-  const [tab,         setTab]         = useState('orders') // 'orders' | 'stoplist'
+  const [session,        setSession]        = useState(null)
+  const [authChecked,    setAuthChecked]    = useState(false)
+  const [assignedBranch, setAssignedBranch] = useState(undefined) // undefined=загружается, null=мастер, 'id'=точка
+  const [tab,            setTab]            = useState('orders')
   const [orders,      setOrders]      = useState([])
   const [itemsMap,    setItemsMap]    = useState({})
   const [loading,     setLoading]     = useState(true)
@@ -376,7 +377,22 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!supabase) { setAuthChecked(true); return }
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthChecked(true) })
+    supabase.auth.getSession().then(async ({ data }) => {
+      setSession(data.session)
+      if (data.session?.user?.id) {
+        // Загружаем привязку к точке
+        const { data: adminRow } = await supabase
+          .from('admin_users')
+          .select('branch_id')
+          .eq('user_id', data.session.user.id)
+          .maybeSingle()
+        // Если записи нет → мастер (null), если есть → берём branch_id
+        setAssignedBranch(adminRow ? (adminRow.branch_id || null) : null)
+      } else {
+        setAssignedBranch(null)
+      }
+      setAuthChecked(true)
+    })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_,s) => setSession(s))
     return () => subscription.unsubscribe()
   }, [])
@@ -384,7 +400,9 @@ export default function AdminPage() {
   async function load() {
     if (!session) return
     setLoading(true)
-    const url = branch==='all' ? '/api/admin/orders' : `/api/admin/orders?branch_id=${branch}`
+    // Если у пользователя назначена точка — принудительно фильтруем по ней
+    const effectiveBranch = assignedBranch !== null && assignedBranch !== undefined ? assignedBranch : branch
+    const url = effectiveBranch === 'all' || !effectiveBranch ? '/api/admin/orders' : `/api/admin/orders?branch_id=${effectiveBranch}`
     try {
       const res = await fetch(url)
       const data = await res.json()
@@ -427,7 +445,13 @@ export default function AdminPage() {
   }, [])
 
   const bName  = id => BRANCHES.find(b => b.id===id)?.name || id
-  const active = useMemo(() => orders.filter(o => ACTIVE_ST.includes(o.status)).sort((a,b) => new Date(a.created_at)-new Date(b.created_at)), [orders])
+  const active = useMemo(() => orders.filter(o => ACTIVE_ST.includes(o.status)).sort((a,b) => {
+    // Новые заказы всегда сверху, остальные по времени (новые сначала)
+    const aIsNew = a.status === 'new' ? 0 : 1
+    const bIsNew = b.status === 'new' ? 0 : 1
+    if (aIsNew !== bIsNew) return aIsNew - bIsNew
+    return new Date(b.created_at) - new Date(a.created_at)
+  }), [orders])
   const done   = useMemo(() => orders.filter(o => DONE_ST.includes(o.status)).sort((a,b) => new Date(b.created_at)-new Date(a.created_at)).slice(0,30), [orders])
   const newCnt = active.filter(o => o.status==='new').length
 
@@ -471,14 +495,14 @@ export default function AdminPage() {
       </div>
 
       {/* ── Вкладка: Стоп-лист ── */}
-      {tab === 'stoplist' && <StopListTab />}
+      {tab === 'stoplist' && <StopListTab defaultBranch={assignedBranch} />}
 
       {/* ── Вкладка: Заказы ── */}
       {tab === 'orders' && (
         <>
-          {/* Фильтр по точке */}
+          {/* Фильтр по точке — только для мастера */}
           <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-            {[{ id:'all', name:'Все точки' }, ...BRANCHES].map(b => (
+            {assignedBranch === null && [{ id:'all', name:'Все точки' }, ...BRANCHES].map(b => (
               <button key={b.id} onClick={() => setBranch(b.id)} style={{
                 border: branch===b.id ? '2px solid #f4a01d' : '1px solid rgba(255,255,255,0.1)',
                 background: branch===b.id ? 'rgba(244,160,29,0.12)' : 'rgba(255,255,255,0.03)',
@@ -487,6 +511,11 @@ export default function AdminPage() {
                 fontFamily:"'Onest',sans-serif", fontWeight:700, fontSize:14, cursor:'pointer',
               }}>{b.name}</button>
             ))}
+            {assignedBranch && (
+              <div style={{ padding:'9px 16px', borderRadius:999, background:'rgba(244,160,29,0.12)', border:'2px solid #f4a01d', color:'#f4a01d', fontFamily:"'Onest',sans-serif", fontWeight:700, fontSize:14 }}>
+                📍 {BRANCHES.find(b=>b.id===assignedBranch)?.name || assignedBranch}
+              </div>
+            )}
             <button onClick={load} style={{ border:'1px solid rgba(255,255,255,0.1)', borderRadius:999, background:'transparent', color:'#8fa3cc', padding:'9px 16px', fontFamily:"'Onest',sans-serif", fontSize:14, cursor:'pointer' }}>↻</button>
           </div>
 

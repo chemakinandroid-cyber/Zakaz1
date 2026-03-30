@@ -18,6 +18,36 @@ export async function POST(req) {
     if (!Array.isArray(body.items)||!body.items.length)
       return Response.json({error:'Корзина пуста'},{status:400})
 
+    // Проверка времени работы
+    const { data: branchRow } = await supabase
+      .from('branches')
+      .select('open, close, cutoff')
+      .eq('id', branch_id)
+      .maybeSingle()
+
+    // Также ищем по name если не нашли по id
+    let scheduleRow = branchRow
+    if (!scheduleRow) {
+      const BRANCH_NAMES = { 'nv-fr-002': 'На Виражах — Аэропорт', 'nv-sh-001': 'На Виражах — Конечная' }
+      const branchName = BRANCH_NAMES[branch_id]
+      if (branchName) {
+        const { data } = await supabase.from('branches').select('open, close, cutoff').eq('name', branchName).maybeSingle()
+        scheduleRow = data
+      }
+    }
+
+    if (scheduleRow?.cutoff) {
+      const now = new Date()
+      const [ch, cm] = scheduleRow.cutoff.split(':').map(Number)
+      const [oh, om] = (scheduleRow.open || '00:00').split(':').map(Number)
+      const nowMin    = now.getHours() * 60 + now.getMinutes()
+      const cutoffMin = ch * 60 + cm
+      const openMin   = oh * 60 + om
+      if (nowMin < openMin || nowMin >= cutoffMin) {
+        return Response.json({ error: `Приём заказов закрыт. Работаем с ${scheduleRow.open} до ${scheduleRow.cutoff}` }, { status: 403 })
+      }
+    }
+
     // Лимит активных заказов
     const {count:activeCount} = await supabase
       .from('orders').select('id',{count:'exact',head:true})

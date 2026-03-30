@@ -198,3 +198,25 @@ CREATE POLICY "push_insert_public" ON push_subscriptions
 DROP POLICY IF EXISTS "push_select_service" ON push_subscriptions;
 CREATE POLICY "push_select_service" ON push_subscriptions
   FOR SELECT USING (true);
+
+-- ─── Таблица привязки администраторов к точкам ──────────────────────────────
+-- branch_id = null → мастер (видит все точки)
+-- branch_id = 'nv-fr-002' → только Аэропорт
+-- branch_id = 'nv-sh-001' → только Конечная
+
+CREATE TABLE IF NOT EXISTS admin_users (
+  user_id   uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  branch_id text NULL, -- null = мастер
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "admin_users_select" ON admin_users;
+CREATE POLICY "admin_users_select" ON admin_users
+  FOR SELECT USING (auth.uid() = user_id);
+
+-- После создания новых пользователей в Supabase Auth,
+-- добавь их сюда:
+-- INSERT INTO admin_users (user_id, branch_id) VALUES ('<uuid>', 'nv-fr-002');
+-- INSERT INTO admin_users (user_id, branch_id) VALUES ('<uuid>', 'nv-sh-001');
+-- Мастер-пользователь не добавляется — он видит всё по умолчанию.

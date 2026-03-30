@@ -501,6 +501,7 @@ function CheckoutModal({ cartItems, total, branch, previewNum, previewLoading, o
 
 export default function Page() {
   const [branchId,       setBranchId]       = useState(BRANCHES[0].id)
+  const [schedule,       setSchedule]       = useState(null) // {open, close, cutoff} из БД
   const [items,          setItems]          = useState([])
   const [loading,        setLoading]        = useState(true)
   const [loadErr,        setLoadErr]        = useState('')
@@ -516,6 +517,18 @@ export default function Page() {
 
   const branch   = BRANCHES.find(b=>b.id===branchId) || BRANCHES[0]
   const addons   = useMemo(()=>items.filter(i=>i.category==='shawarma_addons'), [items])
+
+  // Проверка времени работы
+  const isOpenNow = useMemo(() => {
+    if (!schedule) return true // пока не загрузили — разрешаем
+    const now = new Date()
+    const [oh, om] = (schedule.open||'00:00').split(':').map(Number)
+    const [ch, cm] = (schedule.cutoff||'23:59').split(':').map(Number)
+    const openMin  = oh * 60 + om
+    const cutoffMin = ch * 60 + cm
+    const nowMin   = now.getHours() * 60 + now.getMinutes()
+    return nowMin >= openMin && nowMin < cutoffMin
+  }, [schedule])
 
   // Восстановление корзины
   useEffect(()=>{
@@ -536,10 +549,12 @@ export default function Page() {
     async function load() {
       const sb=getSB()
       if (!sb) { if(active){setItems([]);setLoadErr('Supabase не настроен');setLoading(false)} return }
-      const [{data:menu,error:menuErr},{data:stop}] = await Promise.all([
+      const [{data:menu,error:menuErr},{data:stop},{data:branchRow}] = await Promise.all([
         sb.from('menu_items').select('*').order('name'),
         sb.from('stop_list').select('menu_item_id').eq('branch_id',branchId).eq('is_stopped',true),
+        sb.from('branches').select('open,close,cutoff').eq('name', branch.fullName).maybeSingle(),
       ])
+      if (active && branchRow) setSchedule(branchRow)
       if (!active) return
       if (menuErr) { setItems([]);setLoadErr('Не удалось загрузить меню');setLoading(false);return }
       const stoppedIds = new Set((stop||[]).map(r=>r.menu_item_id))
@@ -739,9 +754,15 @@ export default function Page() {
             </div>
             <div style={{color:'#8fa3cc',fontSize:13}}>{fmt(cartDetails.total)}</div>
           </div>
-          <button onClick={()=>setUpsellOpen(true)} style={{...btnY,marginLeft:'auto',padding:'12px 20px',fontSize:15}}>
-            Оформить заказ →
-          </button>
+          {isOpenNow
+            ? <button onClick={()=>setUpsellOpen(true)} style={{...btnY,marginLeft:'auto',padding:'12px 20px',fontSize:15}}>
+                Оформить заказ →
+              </button>
+            : <div style={{marginLeft:'auto',textAlign:'right'}}>
+                <div style={{color:'#ef4444',fontWeight:800,fontSize:14}}>Приём закрыт</div>
+                <div style={{color:'#6b7db5',fontSize:12}}>до {schedule?.open||'10:00'}</div>
+              </div>
+          }
         </div>
       )}
 
