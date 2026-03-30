@@ -355,62 +355,74 @@ function ItemModal({ item, qty, onAdd, onInc, onDec, onClose, isShawarma }) {
 // ─── ProductCard ──────────────────────────────────────────────────────────────
 
 function ProductCard({ item, cartEntries, onAdd, onInc, onDec, isShawarma, allAddons, onCardClick }) {
-  const unavail = item.coming_soon || Number(item.price) <= 0
-  // Все строки корзины для этого товара (может быть несколько с разными добавками)
+  const unavail  = item.coming_soon || Number(item.price) <= 0
   const totalQty = cartEntries.reduce((s,e)=>s+e.qty, 0)
-  const inCart = totalQty > 0
+  const inCart   = totalQty > 0
 
   return (
-    <div style={{...card,display:'grid',gridTemplateColumns:'1fr auto',gap:12,alignItems:'start'}}>
-      <div>
-        <div style={{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap',marginBottom:4}}>
-          <span
-            onClick={()=>onCardClick&&onCardClick(item)}
-            style={{fontFamily:"'Unbounded',sans-serif",fontWeight:700,fontSize:15,lineHeight:1.3,cursor:'pointer',borderBottom:'1px dashed rgba(255,255,255,0.2)'}}
-          >{item.name}</span>
-          {item.variant && (
-            <span style={{fontSize:11,padding:'2px 8px',borderRadius:999,background:'rgba(255,255,255,0.07)',color:'#a0b4e0'}}>
-              {item.variant==='chicken'?'🐔 курица':item.variant==='pork'?'🐷 свинина':item.variant}
-            </span>
-          )}
-          {item.spicy && <span style={{fontSize:12}}>🌶</span>}
-        </div>
-        {item.description && <div style={{fontSize:13,color:'#8fa3cc',lineHeight:1.5,marginBottom:8}}>{item.description}</div>}
-        <div>
-          {unavail
-            ? <span style={{fontSize:13,color:'#6b7db5'}}>Скоро в продаже</span>
-            : <span style={{fontFamily:"'Unbounded',sans-serif",fontWeight:900,fontSize:18,color:'#f4a01d'}}>{fmt(item.price)}</span>
-          }
-        </div>
+    <div style={{...card, padding:0, overflow:'hidden', cursor:'pointer'}} onClick={()=>onCardClick&&onCardClick(item)}>
 
-        {/* Показываем строки корзины с добавками */}
-        {inCart && cartEntries.map((entry,i) => (
-          <div key={entry.cartKey} style={{marginTop:8,padding:'8px 10px',borderRadius:10,background:'rgba(34,197,94,0.07)',border:'1px solid rgba(34,197,94,0.2)'}}>
+      {/* Фото или заглушка */}
+      <div style={{position:'relative', height:140, background:'linear-gradient(135deg,#1a2d5a,#0a1628)', flexShrink:0}}>
+        {item.image_url
+          ? <img src={item.image_url} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}} />
+          : <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6}}>
+              <span style={{fontSize:36}}>
+                {item.category==='shawarma'?'🌯':item.category==='burgers'?'🍔':item.category==='hotdogs'?'🌭':item.category==='fries'?'🍟':item.category==='drinks'?'☕':item.category==='sauces'?'🥫':item.category==='shashlik'?'🍖':item.category==='quesadilla'?'🫓':'🍽'}
+              </span>
+              <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>фото скоро</span>
+            </div>
+        }
+        {/* Цена поверх фото */}
+        {!unavail && (
+          <div style={{position:'absolute',bottom:8,right:8,background:'rgba(7,18,46,0.85)',backdropFilter:'blur(6px)',borderRadius:10,padding:'4px 10px'}}>
+            <span style={{fontFamily:"'Unbounded',sans-serif",fontWeight:900,fontSize:15,color:'#f4a01d'}}>{fmt(item.price)}</span>
+          </div>
+        )}
+        {item.variant && (
+          <div style={{position:'absolute',top:8,left:8,background:'rgba(7,18,46,0.8)',backdropFilter:'blur(6px)',borderRadius:999,padding:'3px 10px',fontSize:11,color:'#a0b4e0'}}>
+            {item.variant==='chicken'?'🐔 курица':item.variant==='pork'?'🐷 свинина':item.variant}
+          </div>
+        )}
+        {item.spicy && (
+          <div style={{position:'absolute',top:8,right:8,fontSize:16}}>🌶</div>
+        )}
+        {unavail && (
+          <div style={{position:'absolute',inset:0,background:'rgba(7,18,46,0.7)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <span style={{color:'#6b7db5',fontSize:13,fontWeight:700}}>Скоро в продаже</span>
+          </div>
+        )}
+      </div>
+
+      {/* Контент */}
+      <div style={{padding:'12px 14px'}}>
+        <div style={{fontFamily:"'Unbounded',sans-serif",fontWeight:700,fontSize:14,lineHeight:1.3,marginBottom:4}}>{item.name}</div>
+        {item.description && <div style={{fontSize:12,color:'#8fa3cc',lineHeight:1.5,marginBottom:10}}>{item.description}</div>}
+
+        {/* Строки корзины с добавками */}
+        {inCart && cartEntries.map((entry) => (
+          <div key={entry.cartKey} onClick={e=>e.stopPropagation()} style={{marginBottom:8,padding:'7px 10px',borderRadius:10,background:'rgba(34,197,94,0.07)',border:'1px solid rgba(34,197,94,0.2)'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}>
-              <div style={{fontSize:13,color:'#a0f0c0'}}>
-                {entry.modifiers?.length > 0
-                  ? entry.modifiers.map(m=>m.name).join(', ')
-                  : 'Без добавок'}
+              <div style={{fontSize:12,color:'#a0f0c0',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                {entry.modifiers?.length > 0 ? entry.modifiers.map(m=>m.name).join(', ') : 'Без добавок'}
               </div>
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
                 <QtyCtrl qty={entry.qty} onInc={()=>onInc(entry.cartKey)} onDec={()=>onDec(entry.cartKey)} sm />
-                <span style={{fontSize:13,fontWeight:800,color:'#f4a01d',minWidth:56,textAlign:'right'}}>
+                <span style={{fontSize:12,fontWeight:800,color:'#f4a01d',minWidth:48,textAlign:'right'}}>
                   {fmt((Number(item.price)+entry.modifiers.reduce((s,m)=>s+m.price,0))*entry.qty)}
                 </span>
               </div>
             </div>
           </div>
         ))}
-      </div>
 
-      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:8,minWidth:44}}>
+        {/* Кнопка добавить */}
         {!unavail && (
           <button
-            onClick={() => onAdd(item)}
-            style={{...btnG,padding:'10px 14px',fontSize:20,lineHeight:1,borderRadius:12}}
-            title={isShawarma ? 'Добавить с выбором добавок' : 'Добавить в корзину'}
+            onClick={e=>{e.stopPropagation();onAdd(item)}}
+            style={{...btnG, width:'100%', padding:'10px', fontSize:14, borderRadius:10, marginTop: inCart ? 4 : 0}}
           >
-            +
+            {inCart ? '+ Ещё' : isShawarma ? 'Выбрать добавки' : 'В корзину'}
           </button>
         )}
       </div>
@@ -450,20 +462,21 @@ function CatSection({ catKey, items, openMap, toggle, getEntries, onAdd, onInc, 
 
       {isOpen && (
         <div style={{border:'1px solid rgba(255,255,255,0.07)',borderTop:0,borderRadius:'0 0 14px 14px',overflow:'hidden',background:'rgba(255,255,255,0.02)'}}>
-          {items.map((item,i) => (
-            <div key={item.id} style={{padding:'10px',borderBottom:i<items.length-1?'1px solid rgba(255,255,255,0.04)':'none'}}>
-              <ProductCard
-                item={item}
-                cartEntries={getEntries(item.id)}
-                onAdd={onAdd}
-                onInc={onInc}
-                onDec={onDec}
-                isShawarma={isShawarma}
-                allAddons={allAddons}
-                onCardClick={onCardClick}
-              />
-            </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:10,padding:10}}>
+          {items.map((item) => (
+            <ProductCard
+              key={item.id}
+              item={item}
+              cartEntries={getEntries(item.id)}
+              onAdd={onAdd}
+              onInc={onInc}
+              onDec={onDec}
+              isShawarma={isShawarma}
+              allAddons={allAddons}
+              onCardClick={onCardClick}
+            />
           ))}
+          </div>
         </div>
       )}
     </section>
