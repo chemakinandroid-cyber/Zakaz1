@@ -922,7 +922,8 @@ export default function Page() {
         border:'1px solid rgba(255,255,255,0.07)',
       }}>
         {/* Навигация сверху */}
-        <div style={{position:'absolute',top:12,right:16,display:'flex',gap:16,zIndex:2}}>
+        <div style={{position:'absolute',top:12,right:16,display:'flex',gap:14,zIndex:2}}>
+          <a href="/where" style={{color:'rgba(255,255,255,0.4)',fontSize:12,textDecoration:'none'}}>📍 Найти нас</a>
           <a href="/order" style={{color:'rgba(255,255,255,0.4)',fontSize:12,textDecoration:'none'}}>Мой заказ</a>
           <a href="/admin" style={{color:'rgba(255,255,255,0.4)',fontSize:12,textDecoration:'none'}}>Админ</a>
         </div>
@@ -933,8 +934,8 @@ export default function Page() {
             src="/logo.png"
             alt="На Виражах"
             style={{
-              height:160, width:'auto', objectFit:'contain',
-              filter:'drop-shadow(0 4px 20px rgba(0,0,0,0.6))',
+              height:200, width:'90%', maxWidth:420, objectFit:'contain',
+              filter:'drop-shadow(0 4px 24px rgba(0,0,0,0.7))',
             }}
           />
         </div>
