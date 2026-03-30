@@ -934,7 +934,7 @@ export default function Page() {
             alt=""
             style={{
               height:'160%', width:'auto',
-              opacity:0.07,
+              opacity:0.12,
               transform:'translateX(10%) translateY(-5%)',
               filter:'blur(1px)',
             }}
@@ -945,7 +945,7 @@ export default function Page() {
         <div style={{position:'relative',zIndex:1,padding:'16px 18px'}}>
           {/* Логотип + навигация */}
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
-            <img src="/logo.png" alt="На Виражах" style={{height:56,width:'auto',objectFit:'contain'}} />
+            <img src="/logo.png" alt="На Виражах" style={{height:80,width:'auto',objectFit:'contain',filter:'drop-shadow(0 2px 8px rgba(0,0,0,0.4))'}} />
             <div style={{display:'flex',gap:16}}>
               <a href="/order" style={{color:'rgba(255,255,255,0.5)',fontSize:13,textDecoration:'none'}}>Мой заказ</a>
               <a href="/admin" style={{color:'rgba(255,255,255,0.5)',fontSize:13,textDecoration:'none'}}>Админ</a>
