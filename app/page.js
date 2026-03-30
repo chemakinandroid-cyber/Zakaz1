@@ -915,60 +915,46 @@ export default function Page() {
       {/* Шапка */}
       {/* Шапка с логотипом */}
       <div style={{
-        marginBottom:14,
-        borderRadius:20,
-        overflow:'hidden',
-        boxShadow:'0 8px 32px rgba(0,0,0,0.4)',
+        marginBottom:14, borderRadius:20, overflow:'hidden',
+        boxShadow:'0 8px 32px rgba(0,0,0,0.5)',
         position:'relative',
-        background:'linear-gradient(135deg,#0f2660 0%,#07122e 100%)',
+        background:'linear-gradient(160deg,#0f2660 0%,#07122e 100%)',
         border:'1px solid rgba(255,255,255,0.07)',
       }}>
-        {/* Фоновый логотип — большой и полупрозрачный */}
-        <div style={{
-          position:'absolute', inset:0, overflow:'hidden',
-          display:'flex', alignItems:'center', justifyContent:'flex-end',
-          pointerEvents:'none',
-        }}>
+        {/* Навигация сверху */}
+        <div style={{position:'absolute',top:12,right:16,display:'flex',gap:16,zIndex:2}}>
+          <a href="/order" style={{color:'rgba(255,255,255,0.4)',fontSize:12,textDecoration:'none'}}>Мой заказ</a>
+          <a href="/admin" style={{color:'rgba(255,255,255,0.4)',fontSize:12,textDecoration:'none'}}>Админ</a>
+        </div>
+
+        {/* Логотип по центру */}
+        <div style={{display:'flex',justifyContent:'center',padding:'28px 20px 20px'}}>
           <img
             src="/logo.png"
-            alt=""
+            alt="На Виражах"
             style={{
-              height:'160%', width:'auto',
-              opacity:0.12,
-              transform:'translateX(10%) translateY(-5%)',
-              filter:'blur(1px)',
+              height:160, width:'auto', objectFit:'contain',
+              filter:'drop-shadow(0 4px 20px rgba(0,0,0,0.6))',
             }}
           />
         </div>
 
-        {/* Контент поверх */}
-        <div style={{position:'relative',zIndex:1,padding:'16px 18px'}}>
-          {/* Логотип + навигация */}
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
-            <img src="/logo.png" alt="На Виражах" style={{height:80,width:'auto',objectFit:'contain',filter:'drop-shadow(0 2px 8px rgba(0,0,0,0.4))'}} />
-            <div style={{display:'flex',gap:16}}>
-              <a href="/order" style={{color:'rgba(255,255,255,0.5)',fontSize:13,textDecoration:'none'}}>Мой заказ</a>
-              <a href="/admin" style={{color:'rgba(255,255,255,0.5)',fontSize:13,textDecoration:'none'}}>Админ</a>
-            </div>
-          </div>
-
-          {/* Выбор точки */}
-          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        {/* Выбор точки */}
+        <div style={{padding:'0 16px 14px',display:'flex',flexDirection:'column',gap:10,alignItems:'center'}}>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center'}}>
             {BRANCHES.map(b=>(
               <button key={b.id} onClick={()=>{setBranchId(b.id);setCart([])}} style={{
                 border:branchId===b.id?'2px solid #f4a01d':'1px solid rgba(255,255,255,0.12)',
                 background:branchId===b.id?'rgba(244,160,29,0.15)':'rgba(255,255,255,0.05)',
                 color:branchId===b.id?'#f4a01d':'#c8d5f5',
-                borderRadius:999,padding:'9px 18px',
-                fontFamily:"'Onest',sans-serif",fontWeight:700,fontSize:14,cursor:'pointer',
-                backdropFilter:'blur(8px)',
+                borderRadius:999, padding:'9px 20px',
+                fontFamily:"'Onest',sans-serif", fontWeight:700, fontSize:14, cursor:'pointer',
               }}>{b.name}</button>
             ))}
           </div>
-
           {branch.phone && (
-            <div style={{marginTop:12,fontSize:13,color:'rgba(255,255,255,0.4)',display:'flex',gap:12,flexWrap:'wrap'}}>
-              <a href={`tel:${branch.phone.replace(/\s/g,'')}`} style={{color:'rgba(255,255,255,0.4)',textDecoration:'none'}}>📞 {branch.phone}</a>
+            <div style={{fontSize:13,color:'rgba(255,255,255,0.35)',display:'flex',gap:14,flexWrap:'wrap',justifyContent:'center'}}>
+              <a href={`tel:${branch.phone.replace(/\s/g,'')}`} style={{color:'rgba(255,255,255,0.35)',textDecoration:'none'}}>📞 {branch.phone}</a>
               {branch.address && <span>📍 {branch.address}</span>}
             </div>
           )}
