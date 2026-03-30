@@ -289,12 +289,18 @@ function ItemModal({ item, qty, onAdd, onInc, onDec, onClose, isShawarma }) {
     <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.8)',zIndex:85,display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'0 8px 8px'}}>
       <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:560,background:'linear-gradient(160deg,#0d1f4e 0%,#07122e 100%)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:20,padding:20,boxShadow:'0 8px 32px rgba(0,0,0,0.4)'}}>
 
-        {/* Фото */}
-        {item.image_url && (
-          <div style={{marginBottom:16,borderRadius:14,overflow:'hidden',height:200,background:'#0a1628'}}>
-            <img src={item.image_url} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover'}} />
-          </div>
-        )}
+        {/* Фото или заглушка */}
+        <div style={{marginBottom:16,borderRadius:14,overflow:'hidden',height:200,background:'linear-gradient(135deg,#1a2d5a,#0a1628)',position:'relative'}}>
+          {item.image_url
+            ? <img src={item.image_url} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}} />
+            : <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8}}>
+                <span style={{fontSize:56}}>
+                  {item.category==='shawarma'?'🌯':item.category==='burgers'?'🍔':item.category==='hotdogs'?'🌭':item.category==='fries'?'🍟':item.category==='drinks'?'☕':item.category==='sauces'?'🥫':item.category==='shashlik'?'🍖':item.category==='quesadilla'?'🫓':item.category==='shawarma_addons'?'➕':'🍽'}
+                </span>
+                <span style={{fontSize:12,color:'rgba(255,255,255,0.3)'}}>фото скоро</span>
+              </div>
+          }
+        </div>
 
         {/* Шапка */}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
