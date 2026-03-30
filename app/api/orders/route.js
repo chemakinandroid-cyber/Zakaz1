@@ -37,10 +37,12 @@ export async function POST(req) {
     }
 
     if (scheduleRow?.cutoff) {
+      // Время в Улан-Удэ UTC+8
       const now = new Date()
+      const nowUB = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+      const nowMin = nowUB.getUTCHours() * 60 + nowUB.getUTCMinutes()
       const [ch, cm] = scheduleRow.cutoff.split(':').map(Number)
       const [oh, om] = (scheduleRow.open || '00:00').split(':').map(Number)
-      const nowMin    = now.getHours() * 60 + now.getMinutes()
       const cutoffMin = ch * 60 + cm
       const openMin   = oh * 60 + om
       if (nowMin < openMin || nowMin >= cutoffMin) {

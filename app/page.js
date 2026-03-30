@@ -518,15 +518,17 @@ export default function Page() {
   const branch   = BRANCHES.find(b=>b.id===branchId) || BRANCHES[0]
   const addons   = useMemo(()=>items.filter(i=>i.category==='shawarma_addons'), [items])
 
-  // Проверка времени работы
+  // Проверка времени работы — используем локальное время браузера клиента
   const isOpenNow = useMemo(() => {
     if (!schedule) return true // пока не загрузили — разрешаем
     const now = new Date()
     const [oh, om] = (schedule.open||'00:00').split(':').map(Number)
     const [ch, cm] = (schedule.cutoff||'23:59').split(':').map(Number)
-    const openMin  = oh * 60 + om
+    const openMin   = oh * 60 + om
     const cutoffMin = ch * 60 + cm
-    const nowMin   = now.getHours() * 60 + now.getMinutes()
+    // Всегда считаем по Улан-Удэ UTC+8, независимо от устройства клиента
+    const nowUB  = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+    const nowMin = nowUB.getUTCHours() * 60 + nowUB.getUTCMinutes()
     return nowMin >= openMin && nowMin < cutoffMin
   }, [schedule])
 
