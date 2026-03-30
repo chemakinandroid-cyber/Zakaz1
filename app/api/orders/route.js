@@ -50,6 +50,23 @@ export async function POST(req) {
       }
     }
 
+    // Защита от спама — не более 3 заказов с одного телефона за 2 часа
+    if (customer_phone) {
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+      const { count: phoneCount } = await supabase
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('customer_phone', customer_phone)
+        .gte('created_at', twoHoursAgo)
+
+      if (phoneCount >= 3) {
+        return Response.json(
+          { error: 'Слишком много заказов с этого номера. Попробуйте через 2 часа.' },
+          { status: 429 }
+        )
+      }
+    }
+
     // Лимит активных заказов
     const {count:activeCount} = await supabase
       .from('orders').select('id',{count:'exact',head:true})

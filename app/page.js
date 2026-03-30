@@ -603,6 +603,77 @@ function CheckoutModal({ cartItems, total, branch, previewNum, previewLoading, o
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+
+// ─── ClosedScreen — кафе закрыто ─────────────────────────────────────────────
+
+function ClosedScreen({ branch, schedule }) {
+  const openTime = schedule?.open || '10:00'
+  const closeTime = schedule?.close || '22:00'
+  const cutoffTime = schedule?.cutoff || '21:30'
+
+  // Определяем — ещё не открылось или уже закрылось
+  const now = new Date()
+  const nowUB = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+  const nowMin = nowUB.getUTCHours() * 60 + nowUB.getUTCMinutes()
+  const [oh, om] = openTime.split(':').map(Number)
+  const openMin = oh * 60 + om
+  const isNotOpenYet = nowMin < openMin
+
+  return (
+    <div style={{ maxWidth: 480, margin: '60px auto', padding: '0 16px', textAlign: 'center' }}>
+      <div style={{ fontSize: 72, marginBottom: 16 }}>
+        {isNotOpenYet ? '🌙' : '🔒'}
+      </div>
+      <div style={{ fontFamily: "'Unbounded',sans-serif", fontWeight: 900, fontSize: 24, marginBottom: 8 }}>
+        {isNotOpenYet ? 'Ещё закрыто' : 'Уже закрыто'}
+      </div>
+      <div style={{ color: '#8fa3cc', fontSize: 15, lineHeight: 1.7, marginBottom: 28 }}>
+        {isNotOpenYet
+          ? <>Приём заказов начнётся в <strong style={{ color: '#f4a01d' }}>{openTime}</strong></>
+          : <>Приём заказов завершён в <strong style={{ color: '#f4a01d' }}>{cutoffTime}</strong><br />Ждём вас завтра с <strong style={{ color: '#f4a01d' }}>{openTime}</strong></>
+        }
+      </div>
+
+      <div style={{ background: 'linear-gradient(160deg,#0d1f4e,#07122e)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 20, padding: 20, marginBottom: 24 }}>
+        <div style={{ fontFamily: "'Unbounded',sans-serif", fontWeight: 700, fontSize: 14, color: '#f4a01d', marginBottom: 14 }}>
+          📍 {branch.fullName}
+        </div>
+        <div style={{ display: 'grid', gap: 8, fontSize: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#c8d5f5' }}>
+            <span>Время работы</span>
+            <span style={{ fontWeight: 700 }}>{openTime} — {closeTime}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#c8d5f5' }}>
+            <span>Приём заказов</span>
+            <span style={{ fontWeight: 700 }}>до {cutoffTime}</span>
+          </div>
+          {branch.phone && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#c8d5f5' }}>
+              <span>Телефон</span>
+              <a href={`tel:${branch.phone}`} style={{ fontWeight: 700, color: '#f4a01d', textDecoration: 'none' }}>{branch.phone}</a>
+            </div>
+          )}
+          {branch.address && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#c8d5f5' }}>
+              <span>Адрес</span>
+              <span style={{ fontWeight: 700 }}>{branch.address}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+        <a href="/order" style={{ border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12, background: 'transparent', color: '#c8d5f5', fontFamily: "'Onest',sans-serif", fontWeight: 700, padding: '12px 20px', fontSize: 14, textDecoration: 'none', display: 'inline-block' }}>
+          Отследить заказ
+        </a>
+        <a href="/admin" style={{ border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12, background: 'transparent', color: '#c8d5f5', fontFamily: "'Onest',sans-serif", fontWeight: 700, padding: '12px 20px', fontSize: 14, textDecoration: 'none', display: 'inline-block' }}>
+          Админка
+        </a>
+      </div>
+    </div>
+  )
+}
+
 export default function Page() {
   const [branchId,       setBranchId]       = useState(BRANCHES[0].id)
   const [schedule,       setSchedule]       = useState(null) // {open, close, cutoff} из БД
@@ -810,6 +881,34 @@ export default function Page() {
 
   // ─── Основной рендер ─────────────────────────────────────────────────────────
 
+  // Показываем экран закрытия только после загрузки расписания
+  if (schedule && !isOpenNow && !loading) {
+    return (
+      <main style={{maxWidth:860,margin:'0 auto',padding:'16px 12px'}}>
+        {/* Шапка с выбором точки */}
+        <div style={{...card,marginBottom:14,background:'linear-gradient(135deg,#0f2660 0%,#07122e 100%)'}}>
+          <div style={{fontFamily:"'Unbounded',sans-serif",fontWeight:900,fontSize:26,marginBottom:4}}>На Виражах</div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
+            {BRANCHES.map(b=>(
+              <button key={b.id} onClick={()=>{setBranchId(b.id);setCart([])}} style={{
+                border:branchId===b.id?'2px solid #f4a01d':'1px solid rgba(255,255,255,0.1)',
+                background:branchId===b.id?'rgba(244,160,29,0.12)':'rgba(255,255,255,0.03)',
+                color:branchId===b.id?'#f4a01d':'#c8d5f5',
+                borderRadius:999,padding:'9px 16px',
+                fontFamily:"'Onest',sans-serif",fontWeight:700,fontSize:14,cursor:'pointer',
+              }}>{b.name}</button>
+            ))}
+            <div style={{marginLeft:'auto',display:'flex',gap:16}}>
+              <a href="/order" style={{color:'#6b8ecf',fontSize:13,textDecoration:'none'}}>Мой заказ</a>
+              <a href="/admin" style={{color:'#6b8ecf',fontSize:13,textDecoration:'none'}}>Админ</a>
+            </div>
+          </div>
+        </div>
+        <ClosedScreen branch={branch} schedule={schedule} />
+      </main>
+    )
+  }
+
   return (
     <main style={{maxWidth:860,margin:'0 auto',padding:'16px 12px 120px'}}>
 
@@ -862,15 +961,9 @@ export default function Page() {
             </div>
             <div style={{color:'#8fa3cc',fontSize:13}}>{fmt(cartDetails.total)}</div>
           </div>
-          {isOpenNow
-            ? <button onClick={()=>setUpsellOpen(true)} style={{...btnY,marginLeft:'auto',padding:'12px 20px',fontSize:15}}>
-                Оформить заказ →
-              </button>
-            : <div style={{marginLeft:'auto',textAlign:'right'}}>
-                <div style={{color:'#ef4444',fontWeight:800,fontSize:14}}>Приём закрыт</div>
-                <div style={{color:'#6b7db5',fontSize:12}}>до {schedule?.open||'10:00'}</div>
-              </div>
-          }
+          <button onClick={()=>setUpsellOpen(true)} style={{...btnY,marginLeft:'auto',padding:'12px 20px',fontSize:15}}>
+            Оформить заказ →
+          </button>
         </div>
       )}
 
