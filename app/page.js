@@ -6,8 +6,8 @@ import { createClient } from '@supabase/supabase-js'
 // ─── Константы ────────────────────────────────────────────────────────────────
 
 const BRANCHES = [
-  { id: 'nv-fr-002', name: 'Аэропорт', fullName: 'На Виражах — Аэропорт', phone: '+7 902 452-42-22', address: 'мкр. Аэропорт, 7' },
-  { id: 'nv-sh-001', name: 'Конечная',  fullName: 'На Виражах — Конечная',  phone: '+7 908 593-26-88', address: 'ул. Конечная, 10, корп. 4' },
+  { id: 'nv-fr-002', name: 'Аэропорт', fullName: 'На Виражах — Аэропорт', phone: '+7 902 452-42-22', address: 'мкр. Аэропорт, 7', stopId: 'airport' },
+  { id: 'nv-sh-001', name: 'Конечная',  fullName: 'На Виражах — Конечная',  phone: '+7 908 593-26-88', address: 'ул. Конечная, 10, корп. 4', stopId: 'konechnaya' },
 ]
 
 const CATEGORY_ORDER  = ['shawarma','shawarma_addons','burgers','hotdogs','shashlik','quesadilla','fries','sauces','drinks']
@@ -733,7 +733,7 @@ export default function Page() {
       if (!sb) { if(active){setItems([]);setLoadErr('Supabase не настроен');setLoading(false)} return }
       const [{data:menu,error:menuErr},{data:stop},{data:branchRow}] = await Promise.all([
         sb.from('menu_items').select('*').order('name'),
-        sb.from('stop_list').select('menu_item_id').eq('branch_id',branchId).eq('is_stopped',true),
+        sb.from('stop_list').select('menu_item_id').eq('branch_id', BRANCHES.find(b=>b.id===branchId)?.stopId || branchId).eq('is_stopped',true),
         sb.from('branches').select('open,close,cutoff').eq('name', branch.fullName).maybeSingle(),
       ])
       if (active && branchRow) setSchedule(branchRow)

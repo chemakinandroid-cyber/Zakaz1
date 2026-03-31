@@ -4,9 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 const BRANCHES = [
-  { id: 'nv-fr-002', name: 'Аэропорт', fullName: 'На Виражах — Аэропорт' },
-  { id: 'nv-sh-001', name: 'Конечная',  fullName: 'На Виражах — Конечная' },
+  { id: 'nv-fr-002', name: 'Аэропорт', fullName: 'На Виражах — Аэропорт', stopId: 'airport' },
+  { id: 'nv-sh-001', name: 'Конечная',  fullName: 'На Виражах — Конечная', stopId: 'konechnaya' },
 ]
+
+// Маппинг branch_id заказов → id в таблице branches (для stop_list)
+const BRANCH_STOP_ID = { 'nv-fr-002': 'airport', 'nv-sh-001': 'konechnaya' }
 const CATEGORY_ORDER = ['shawarma','shawarma_addons','burgers','hotdogs','shashlik','quesadilla','fries','sauces','drinks']
 const CATEGORY_LABELS = {
   shawarma:'Шаурма', shawarma_addons:'Добавки к шаурме',
@@ -232,9 +235,10 @@ function StopListTab({ defaultBranch }) {
   async function loadData(branchId) {
     if (!supabase) return
     setLoading(true)
+    const stopBranchId = BRANCH_STOP_ID[branchId] || branchId
     const [{ data: menu }, { data: stop }] = await Promise.all([
       supabase.from('menu_items').select('id,name,category,variant,price,image_url').order('name'),
-      supabase.from('stop_list').select('menu_item_id').eq('branch_id', branchId).eq('is_stopped', true),
+      supabase.from('stop_list').select('menu_item_id').eq('branch_id', stopBranchId).eq('is_stopped', true),
     ])
     setMenuItems(menu || [])
     setStopSet(new Set((stop || []).map(r => r.menu_item_id)))
@@ -250,10 +254,11 @@ function StopListTab({ defaultBranch }) {
     const isStopped = stopSet.has(itemId)
 
     try {
+      const stopBranchId = BRANCH_STOP_ID[stopBranch] || stopBranch
       const res = await fetch('/api/admin/stoplist', {
         method: isStopped ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ branch_id: stopBranch, menu_item_id: itemId }),
+        body: JSON.stringify({ branch_id: stopBranchId, menu_item_id: itemId }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'Ошибка')
