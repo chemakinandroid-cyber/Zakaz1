@@ -90,6 +90,7 @@ function Inner() {
   const [error,setError]=useState('')
   const [review,setReview]=useState(null)
   const [waitMinutes,setWaitMinutes]=useState(null)
+  const [hasShashlik,setHasShashlik]=useState(false)
 
   async function search(forced){
     const val=String(forced??input).trim()
@@ -150,7 +151,7 @@ function Inner() {
   useEffect(()=>{
     if (!order?.id||['completed','cancelled','expired','ready'].includes(order?.status))return
     async function fetchWait(){
-      try{const r=await fetch(`/api/orders/wait?order_id=${order.id}`);const d=await r.json();setWaitMinutes(d.wait_minutes)}catch{}
+      try{const r=await fetch(`/api/orders/wait?order_id=${order.id}`);const d=await r.json();setWaitMinutes(d.wait_minutes);setHasShashlik(d.has_shashlik||false)}catch{}
     }
     fetchWait()
     const timer=setInterval(fetchWait,60000)
@@ -222,6 +223,11 @@ function Inner() {
               <div style={{ fontWeight:800, fontSize:14, color:'#d97706' }}>
                 ⏱ Примерное время ожидания: ~{waitMinutes} мин
               </div>
+              {hasShashlik && (
+                <div style={{ marginTop:6, fontSize:13, color:'#b45309', fontWeight:600 }}>
+                  🔥 В вашем заказе есть шашлык — он готовится заранее, время может быть больше
+                </div>
+              )}
             </div>
           )}
           {order.status === 'ready' && (

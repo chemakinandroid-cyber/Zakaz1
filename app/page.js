@@ -241,9 +241,9 @@ function UpsellScreen({ cart, items, onAddItem, onProceed }) {
   const coffeeKw=['эспрессо','американо','капучино','латте','раф','макиато']
   const sections=[]
   // Добавки не предлагаем отдельно — они выбираются при заказе шаурмы
-  if(!cartCats.has('fries')){const f=items.filter(i=>i.category==='fries'&&Number(i.price)>0&&!i.coming_soon);if(f.length)sections.push({key:'fries',title:'Картошка?',emoji:'🍟',items:f.slice(0,4)})}
-  if(cartCats.has('fries')&&!cartCats.has('sauces')){const s=items.filter(i=>i.category==='sauces'&&Number(i.price)>0&&!i.coming_soon);if(s.length)sections.push({key:'sauces',title:'Соус?',emoji:'🥫',items:s.slice(0,4)})}
-  if(!cartCats.has('drinks')){const d=items.filter(i=>i.category==='drinks'&&Number(i.price)>0&&!i.coming_soon).sort((a,b)=>{const ac=coffeeKw.some(k=>a.name.toLowerCase().includes(k))?1:0,bc=coffeeKw.some(k=>b.name.toLowerCase().includes(k))?1:0;return ac-bc});if(d.length)sections.push({key:'drinks',title:'Выпить?',emoji:'☕',items:d})}
+  if(!cartCats.has('fries')){const f=items.filter(i=>i.category==='fries'&&Number(i.price)>0&&!i.coming_soon);if(f.length)sections.push({key:'fries',title:'К заказу',emoji:'🍟',items:f.slice(0,4)})}
+  if(cartCats.has('fries')&&!cartCats.has('sauces')){const s=items.filter(i=>i.category==='sauces'&&Number(i.price)>0&&!i.coming_soon);if(s.length)sections.push({key:'sauces',title:'Соус к блюду',emoji:'🥫',items:s.slice(0,4)})}
+  if(!cartCats.has('drinks')){const d=items.filter(i=>i.category==='drinks'&&Number(i.price)>0&&!i.coming_soon).sort((a,b)=>{const ac=coffeeKw.some(k=>a.name.toLowerCase().includes(k))?1:0,bc=coffeeKw.some(k=>b.name.toLowerCase().includes(k))?1:0;return ac-bc});if(d.length)sections.push({key:'drinks',title:'Напитки',emoji:'☕',items:d})}
   const cartIds=new Set(cart.map(e=>e.id))
   return (
     <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:75,display:'flex',alignItems:'flex-end',justifyContent:'center' }}>
