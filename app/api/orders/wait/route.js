@@ -51,15 +51,27 @@ export async function GET(req) {
     // Получаем заказ и его состав
     const [{ data: order }, { data: orderItems }] = await Promise.all([
       supabase.from('orders').select('branch_id, status, created_at').eq('id', order_id).maybeSingle(),
-      supabase.from('order_items').select('category, quantity').eq('order_id', order_id),
+      supabase.from('order_items').select('quantity, menu_item_id, item_name').eq('order_id', order_id),
     ])
+
+    // Получаем категории через menu_items
+    let itemsWithCat = orderItems || []
+    if (itemsWithCat.length) {
+      const menuIds = [...new Set(itemsWithCat.map(i => i.menu_item_id).filter(Boolean))]
+      if (menuIds.length) {
+        const { data: menuRows } = await supabase
+          .from('menu_items').select('id, category').in('id', menuIds)
+        const catMap = Object.fromEntries((menuRows||[]).map(r => [r.id, r.category]))
+        itemsWithCat = itemsWithCat.map(i => ({ ...i, category: catMap[i.menu_item_id] || 'other' }))
+      }
+    }
 
     if (!order || ['completed', 'cancelled', 'expired', 'ready'].includes(order.status)) {
       return Response.json({ wait_minutes: null })
     }
 
     // Время на этот заказ
-    const thisOrderTime = calcOrderTime(orderItems || [])
+    const thisOrderTime = calcOrderTime(itemsWithCat)
 
     // Заказы в очереди ПЕРЕД этим (созданные раньше)
     const { data: aheadOrders } = await supabase
@@ -87,7 +99,7 @@ export async function GET(req) {
     const remaining = Math.max(1, thisOrderTime + queueTime - elapsedMin)
 
     // Есть ли шашлык? Предупреждаем отдельно
-    const hasShashlik = (orderItems || []).some(i => normCat(i.category) === 'shashlik')
+    const hasShashlik = itemsWithCat.some(i => normCat(i.category) === 'shashlik')
 
     return Response.json({
       wait_minutes: remaining,
