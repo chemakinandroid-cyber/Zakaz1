@@ -6,8 +6,8 @@ import { createClient } from '@supabase/supabase-js'
 // ─── Константы ────────────────────────────────────────────────────────────────
 
 const BRANCHES = [
-  { id: 'nv-fr-002', name: 'Аэропорт', fullName: 'На Виражах — Аэропорт', phone: '+7 902 452-42-22', address: 'Аэропорт, 7' },
-  { id: 'nv-sh-001', name: 'Конечная',  fullName: 'На Виражах — Конечная',  phone: '+7 908 593-26-88', address: '' },
+  { id: 'nv-fr-002', name: 'Аэропорт', fullName: 'На Виражах — Аэропорт', phone: '+7 902 452-42-22', address: 'мкр. Аэропорт, 7' },
+  { id: 'nv-sh-001', name: 'Конечная',  fullName: 'На Виражах — Конечная',  phone: '+7 908 593-26-88', address: 'ул. Конечная, 10, корп. 4' },
 ]
 
 const CATEGORY_ORDER  = ['shawarma','shawarma_addons','burgers','hotdogs','shashlik','quesadilla','fries','sauces','drinks']
@@ -413,7 +413,11 @@ function ProductCard({ item, cartEntries, onAdd, onInc, onDec, isShawarma, allAd
                 {entry.modifiers?.length > 0 ? entry.modifiers.map(m=>m.name).join(', ') : 'Без добавок'}
               </div>
               <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
-                <QtyCtrl qty={entry.qty} onInc={()=>onInc(entry.cartKey)} onDec={()=>onDec(entry.cartKey)} sm />
+                {/* Для шаурмы — кнопка удалить, для остальных — qty control */}
+                {isShawarma
+                  ? <button onClick={()=>onDec(entry.cartKey)} style={{...btnGh,padding:'4px 10px',fontSize:12,borderRadius:8}}>✕</button>
+                  : <QtyCtrl qty={entry.qty} onInc={()=>onInc(entry.cartKey)} onDec={()=>onDec(entry.cartKey)} sm />
+                }
                 <span style={{fontSize:12,fontWeight:800,color:'#f4a01d',minWidth:48,textAlign:'right'}}>
                   {fmt((Number(item.price)+entry.modifiers.reduce((s,m)=>s+m.price,0))*entry.qty)}
                 </span>
@@ -428,7 +432,7 @@ function ProductCard({ item, cartEntries, onAdd, onInc, onDec, isShawarma, allAd
             onClick={e=>{e.stopPropagation();onAdd(item)}}
             style={{...btnG, width:'100%', padding:'10px', fontSize:14, borderRadius:10, marginTop: inCart ? 4 : 0}}
           >
-            {inCart ? '+ Ещё' : isShawarma ? 'Выбрать добавки' : 'В корзину'}
+            {inCart ? '+ Добавить ещё' : isShawarma ? 'Выбрать добавки →' : 'В корзину'}
           </button>
         )}
       </div>
@@ -667,7 +671,7 @@ function ClosedScreen({ branch, schedule }) {
           Отследить заказ
         </a>
         <a href="/admin" style={{ border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12, background: 'transparent', color: '#c8d5f5', fontFamily: "'Onest',sans-serif", fontWeight: 700, padding: '12px 20px', fontSize: 14, textDecoration: 'none', display: 'inline-block' }}>
-          Админка
+          Вход для администратора
         </a>
       </div>
     </div>
@@ -900,7 +904,7 @@ export default function Page() {
             ))}
             <div style={{marginLeft:'auto',display:'flex',gap:16}}>
               <a href="/order" style={{color:'#6b8ecf',fontSize:13,textDecoration:'none'}}>Мой заказ</a>
-              <a href="/admin" style={{color:'#6b8ecf',fontSize:13,textDecoration:'none'}}>Админ</a>
+              <a href="/admin" style={{color:'#6b8ecf',fontSize:13,textDecoration:'none'}}>Вход для администратора</a>
             </div>
           </div>
         </div>
@@ -925,7 +929,7 @@ export default function Page() {
         <div style={{position:'absolute',top:12,right:16,display:'flex',gap:14,zIndex:2}}>
           <a href="/where" style={{color:'rgba(255,255,255,0.4)',fontSize:12,textDecoration:'none'}}>📍 Найти нас</a>
           <a href="/order" style={{color:'rgba(255,255,255,0.4)',fontSize:12,textDecoration:'none'}}>Мой заказ</a>
-          <a href="/admin" style={{color:'rgba(255,255,255,0.4)',fontSize:12,textDecoration:'none'}}>Админ</a>
+          <a href="/admin" style={{color:'rgba(255,255,255,0.4)',fontSize:12,textDecoration:'none'}}>Вход для администратора</a>
         </div>
 
         {/* Логотип по центру */}
