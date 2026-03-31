@@ -4,199 +4,190 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 const BRANCHES = [
-  { id: 'nv-fr-002', name: 'Аэропорт', fullName: 'На Виражах — Аэропорт', stopId: 'airport' },
-  { id: 'nv-sh-001', name: 'Конечная',  fullName: 'На Виражах — Конечная', stopId: 'konechnaya' },
+  { id:'nv-fr-002', name:'Аэропорт', fullName:'На Виражах — Аэропорт', stopId:'airport' },
+  { id:'nv-sh-001', name:'Конечная', fullName:'На Виражах — Конечная', stopId:'konechnaya' },
 ]
-
-// Маппинг branch_id заказов → id в таблице branches (для stop_list)
-const BRANCH_STOP_ID = { 'nv-fr-002': 'airport', 'nv-sh-001': 'konechnaya' }
+const BRANCH_STOP_ID = { 'nv-fr-002':'airport', 'nv-sh-001':'konechnaya' }
 const CATEGORY_ORDER = ['shawarma','shawarma_addons','burgers','hotdogs','shashlik','quesadilla','fries','sauces','drinks']
-const CATEGORY_LABELS = {
-  shawarma:'Шаурма', shawarma_addons:'Добавки к шаурме',
-  burgers:'Бургеры', hotdogs:'Хот-доги', shashlik:'Шашлык',
-  quesadilla:'Кесадилья', fries:'Фритюр', sauces:'Соусы', drinks:'Напитки',
-}
+const CATEGORY_LABELS = { shawarma:'Шаурма', shawarma_addons:'Добавки к шаурме', burgers:'Бургеры', hotdogs:'Хот-доги', shashlik:'Шашлык', quesadilla:'Кесадилья', fries:'Фритюр', sauces:'Соусы', drinks:'Напитки' }
 const ACTIVE_ST = ['new','confirmed','preparing','ready']
 const DONE_ST   = ['completed','cancelled','expired']
-const LABELS = {
-  new:'Новый', confirmed:'Подтверждён', preparing:'Готовится',
-  ready:'Готов', completed:'Выдан', cancelled:'Отменён', expired:'Истёк',
-}
-const COLORS = {
-  new:'#6b8ecf', confirmed:'#a78bfa', preparing:'#f4a01d',
-  ready:'#22c55e', completed:'#3d4f6e', cancelled:'#7f3a3a', expired:'#3d4f6e',
-}
+const LABELS    = { new:'Новый', confirmed:'Подтверждён', preparing:'Готовится', ready:'Готов', completed:'Выдан', cancelled:'Отменён', expired:'Истёк' }
 const NEXT_ACTIONS = {
-  new:       [{ v:'confirmed', label:'✅ Подтвердить' }, { v:'cancelled', label:'❌ Отменить' }],
-  confirmed: [{ v:'preparing', label:'🍳 В работу'   }, { v:'cancelled', label:'❌ Отменить' }],
-  preparing: [{ v:'ready',     label:'🔔 Готов'       }],
-  ready:     [{ v:'completed', label:'✔️ Выдан'       }],
+  new:       [{ v:'confirmed', label:'✅ Подтвердить', clr:'#22c55e' }, { v:'cancelled', label:'✕ Отменить', clr:'#ef4444' }],
+  confirmed: [{ v:'preparing', label:'🍳 В работу',   clr:'#f59e0b' }, { v:'cancelled', label:'✕ Отменить', clr:'#ef4444' }],
+  preparing: [{ v:'ready',     label:'🔔 Готов',       clr:'#22c55e' }],
+  ready:     [{ v:'completed', label:'✔ Выдан',       clr:'#6366f1' }],
+}
+const STATUS_CLR = { new:'#60a5fa', confirmed:'#a78bfa', preparing:'#fbbf24', ready:'#34d399', completed:'#6b7280', cancelled:'#f87171', expired:'#6b7280' }
+
+// Design tokens
+const D = {
+  bg: '#0f1117',
+  surface: '#1a1d27',
+  surface2: '#22263a',
+  border: '#2a2f45',
+  accent: '#ff6b35',
+  gold: '#f59e0b',
+  text: '#f1f5f9',
+  sub: '#64748b',
+  green: '#22c55e',
+  red: '#ef4444',
 }
 
-function fmt(v) { return `${Number(v||0)} ₽` }
-function elapsed(ts) {
-  if (!ts) return ''
-  const m = Math.floor((Date.now()-new Date(ts))/60000)
-  if (m < 1) return 'только что'
-  if (m < 60) return `${m} мин`
-  return `${Math.floor(m/60)} ч ${m%60} мин`
+function fmt(v){ return `${Number(v||0)} ₽` }
+function elapsed(ts){
+  if(!ts)return ''
+  const m=Math.floor((Date.now()-new Date(ts))/60000)
+  if(m<1)return 'только что'
+  if(m<60)return `${m} мин`
+  return `${Math.floor(m/60)}ч ${m%60}м`
 }
-
-function timerColor(ts, status) {
-  if (!ts || ['completed','cancelled','expired'].includes(status)) return null
-  const m = Math.floor((Date.now()-new Date(ts))/60000)
-  if (m < 10) return { color:'#22c55e', label:'●', urgency: 0 }
-  if (m < 20) return { color:'#f4a01d', label:'●', urgency: 1 }
-  return { color:'#ef4444', label:'●', urgency: 2 }
+function fmtTime(v){
+  if(!v)return ''
+  const d=new Date(v)
+  return isNaN(d)?'':d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})
 }
-function fmtTime(v) {
-  if (!v) return ''
-  const d = new Date(v)
-  return isNaN(d) ? '' : d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})
-}
-function normCat(cat) {
-  const r = String(cat||'').trim().toLowerCase()
-  if (r === 'fryer') return 'fries'
-  return r
-}
+function normCat(c){ const r=String(c||'').trim().toLowerCase(); return r==='fryer'?'fries':r||'other' }
 
-
-// ─── Login ────────────────────────────────────────────────────────────────────
-
+// ─── Login ─────────────────────────────────────────────────────────────────────
 function Login({ onLogin }) {
-  const [email, setEmail] = useState('')
-  const [pass,  setPass]  = useState('')
-  const [err,   setErr]   = useState('')
-  const [busy,  setBusy]  = useState(false)
+  const [email,setEmail]=useState('')
+  const [pass,setPass]=useState('')
+  const [err,setErr]=useState('')
+  const [busy,setBusy]=useState(false)
 
-  async function submit(e) {
-    e.preventDefault(); setErr(''); setBusy(true)
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass })
-      if (error) return setErr(error.message)
-      onLogin(data.session)
-    } catch { setErr('Ошибка входа') }
-    finally { setBusy(false) }
+  async function submit(e){
+    e.preventDefault();setErr('');setBusy(true)
+    try{const{data,error}=await supabase.auth.signInWithPassword({email,password:pass});if(error)return setErr(error.message);onLogin(data.session)}
+    catch{setErr('Ошибка входа')}finally{setBusy(false)}
   }
 
   return (
-    <main style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-      <div style={{ width:'100%', maxWidth:380, background:'linear-gradient(160deg,#0d1f4e,#07122e)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:20, padding:28 }}>
-        <div style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:900, fontSize:20, marginBottom:4 }}>На Виражах</div>
-        <div style={{ color:'#6b7db5', fontSize:14, marginBottom:24 }}>Панель администратора</div>
-        <form onSubmit={submit} style={{ display:'grid', gap:12 }}>
-          <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="Email"
-            style={{ padding:'12px 14px', borderRadius:10, border:'1px solid rgba(255,255,255,0.12)', background:'rgba(255,255,255,0.04)', color:'#f0f4ff', fontFamily:"'Onest',sans-serif", fontSize:15, outline:'none' }} required />
-          <input value={pass} onChange={e=>setPass(e.target.value)} type="password" placeholder="Пароль"
-            style={{ padding:'12px 14px', borderRadius:10, border:'1px solid rgba(255,255,255,0.12)', background:'rgba(255,255,255,0.04)', color:'#f0f4ff', fontFamily:"'Onest',sans-serif", fontSize:15, outline:'none' }} required />
-          {err && <div style={{ color:'#ff7c7c', fontSize:13 }}>{err}</div>}
-          <button type="submit" disabled={busy} style={{ border:0, borderRadius:10, background:'#f4a01d', color:'#07122e', fontFamily:"'Unbounded',sans-serif", fontWeight:700, fontSize:14, padding:13, cursor:busy?'default':'pointer', opacity:busy?0.7:1 }}>
-            {busy ? 'Входим…' : 'Войти'}
-          </button>
-        </form>
+    <div style={{ minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:D.bg,padding:16 }}>
+      <div style={{ width:'100%',maxWidth:380 }}>
+        {/* Логотип */}
+        <div style={{ textAlign:'center',marginBottom:32 }}>
+          <img src="/logo.png" alt="На Виражах" style={{ height:80,objectFit:'contain',filter:'brightness(1.1)' }} />
+        </div>
+        <div style={{ background:D.surface,border:`1px solid ${D.border}`,borderRadius:20,padding:28 }}>
+          <div style={{ fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:20,color:D.text,marginBottom:4 }}>Панель администратора</div>
+          <div style={{ color:D.sub,fontSize:14,marginBottom:24 }}>Введите данные для входа</div>
+          <form onSubmit={submit} style={{ display:'grid',gap:12 }}>
+            <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="Email"
+              style={{ padding:'13px 16px',borderRadius:12,border:`1px solid ${D.border}`,background:D.surface2,color:D.text,fontFamily:"'Nunito',sans-serif",fontSize:15,outline:'none',width:'100%',boxSizing:'border-box' }} required />
+            <input value={pass} onChange={e=>setPass(e.target.value)} type="password" placeholder="Пароль"
+              style={{ padding:'13px 16px',borderRadius:12,border:`1px solid ${D.border}`,background:D.surface2,color:D.text,fontFamily:"'Nunito',sans-serif",fontSize:15,outline:'none',width:'100%',boxSizing:'border-box' }} required />
+            {err&&<div style={{ color:D.red,fontSize:13,fontWeight:600 }}>{err}</div>}
+            <button type="submit" disabled={busy} style={{ border:0,borderRadius:12,background:D.accent,color:'#fff',fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,padding:14,cursor:busy?'default':'pointer',opacity:busy?0.7:1,boxShadow:`0 4px 16px rgba(255,107,53,0.35)` }}>
+              {busy?'Входим…':'Войти'}
+            </button>
+          </form>
+        </div>
       </div>
-    </main>
+    </div>
   )
 }
 
-// ─── OrderCard ────────────────────────────────────────────────────────────────
-
+// ─── OrderCard ─────────────────────────────────────────────────────────────────
 function OrderCard({ order, items, branchLabel }) {
-  const [updating, setUpdating] = useState(false)
-  const [el, setEl] = useState(elapsed(order.created_at))
-  const actions = NEXT_ACTIONS[order.status] || []
-  const color = COLORS[order.status] || '#3d4f6e'
-  const isNew = order.status === 'new'
+  const [updating,setUpdating]=useState(false)
+  const [el,setEl]=useState(elapsed(order.created_at))
+  const actions=NEXT_ACTIONS[order.status]||[]
+  const stClr=STATUS_CLR[order.status]||D.sub
+  const isNew=order.status==='new'
+  const isReady=order.status==='ready'
 
-  useEffect(() => {
-    const id = setInterval(() => setEl(elapsed(order.created_at)), 30000)
-    return () => clearInterval(id)
-  }, [order.created_at])
+  useEffect(()=>{
+    const id=setInterval(()=>setEl(elapsed(order.created_at)),30000)
+    return()=>clearInterval(id)
+  },[order.created_at])
 
-  async function changeStatus(v) {
+  async function changeStatus(v){
     setUpdating(true)
-    try {
-      await fetch('/api/admin/orders', {
-        method:'PATCH',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ id: order.id, status: v }),
-      })
-      // Отправляем push клиенту при изменении статуса
-      if (['confirmed', 'ready', 'completed'].includes(v)) {
-        fetch('/api/push/send', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ order_id: order.id, status: v }),
-        }).catch(() => {})
+    try{
+      await fetch('/api/admin/orders',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:order.id,status:v})})
+      if(['confirmed','ready','completed'].includes(v)){
+        fetch('/api/push/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:order.id,status:v})}).catch(()=>{})
       }
-    } finally { setUpdating(false) }
+    }finally{setUpdating(false)}
   }
+
+  // Таймер
+  const mins=Math.floor((Date.now()-new Date(order.created_at))/60000)
+  const pct=Math.min(100,(mins/30)*100)
+  const timerClr=mins<10?D.green:mins<20?D.gold:D.red
 
   return (
     <div style={{
-      background:'linear-gradient(160deg,#0d1f4e,#07122e)',
-      border:`1px solid ${isNew ? 'rgba(244,160,29,0.45)' : 'rgba(255,255,255,0.07)'}`,
-      borderRadius:16, padding:16,
-      boxShadow: isNew ? '0 0 28px rgba(244,160,29,0.1)' : 'none',
+      background: isNew ? `linear-gradient(135deg,${D.surface} 0%,#1e2035 100%)` : D.surface,
+      border: `1px solid ${isNew?'rgba(255,107,53,0.4)':isReady?'rgba(34,197,94,0.3)':D.border}`,
+      borderRadius:16,padding:16,
+      boxShadow: isNew?`0 0 24px rgba(255,107,53,0.08)`:isReady?`0 0 20px rgba(34,197,94,0.06)`:'none',
+      position:'relative',overflow:'hidden',
     }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
-        <div>
-          <div style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:900, fontSize:28, color:'#f4a01d', lineHeight:1 }}>
-            {order.short_number || order.order_number || order.id.slice(0,8)}
+      {/* Цветная полоска сверху */}
+      <div style={{ position:'absolute',top:0,left:0,right:0,height:3,background:stClr,borderRadius:'16px 16px 0 0' }} />
+
+      {/* Шапка карточки */}
+      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10,marginTop:4 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ display:'flex',alignItems:'baseline',gap:12 }}>
+            <span style={{ fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:32,color:D.accent,lineHeight:1 }}>
+              {order.short_number||order.order_number||order.id.slice(0,8)}
+            </span>
+            {branchLabel && <span style={{ fontSize:12,color:D.sub,fontWeight:600 }}>📍 {branchLabel}</span>}
           </div>
-          {/* Таймер-полоска */}
-          {!['completed','cancelled','expired'].includes(order.status) && (() => {
-            const mins = Math.floor((Date.now()-new Date(order.created_at))/60000)
-            const pct  = Math.min(100, (mins/30)*100)
-            const col  = mins < 10 ? '#22c55e' : mins < 20 ? '#f4a01d' : '#ef4444'
-            return (
-              <div style={{ marginTop:6, height:3, borderRadius:2, background:'rgba(255,255,255,0.08)', overflow:'hidden', width:'100%' }}>
-                <div style={{ height:'100%', width:`${pct}%`, background:col, borderRadius:2, transition:'width 30s linear' }} />
-              </div>
-            )
-          })()}
-          <div style={{ color:'#6b7db5', fontSize:12, marginTop:4, display:'flex', alignItems:'center', gap:6 }}>
-            {(() => {
-              const t = timerColor(order.created_at, order.status)
-              return t ? <span style={{ color: t.color, fontSize:10, animation: t.urgency === 2 ? 'pulse 1s infinite' : 'none' }}>{t.label}</span> : null
-            })()}
-            {fmtTime(order.created_at)} · {el}{branchLabel ? ` · ${branchLabel}` : ''}
+          {/* Прогресс-таймер */}
+          {!DONE_ST.includes(order.status)&&(
+            <div style={{ marginTop:6,height:4,borderRadius:2,background:'rgba(255,255,255,0.06)',overflow:'hidden',width:'100%',maxWidth:200 }}>
+              <div style={{ height:'100%',width:`${pct}%`,background:timerClr,borderRadius:2,transition:'width 30s linear' }} />
+            </div>
+          )}
+          <div style={{ display:'flex',alignItems:'center',gap:8,marginTop:5,fontSize:12,color:D.sub }}>
+            {!DONE_ST.includes(order.status)&&<span style={{ color:timerClr,fontWeight:700 }}>⏱ {el}</span>}
+            <span>{fmtTime(order.created_at)}</span>
           </div>
         </div>
-        <div style={{ display:'inline-flex', alignItems:'center', padding:'4px 12px', borderRadius:999, background:`${color}22`, border:`1px solid ${color}55`, color, fontSize:12, fontWeight:700 }}>
-          {LABELS[order.status] || order.status}
+        <div style={{ padding:'5px 12px',borderRadius:999,background:`${stClr}18`,border:`1px solid ${stClr}40`,color:stClr,fontSize:12,fontWeight:800,flexShrink:0 }}>
+          {LABELS[order.status]||order.status}
         </div>
       </div>
 
-      {order.customer_name && (
-        <div style={{ fontSize:14, marginBottom:6 }}>
-          👤 <strong>{order.customer_name}</strong>
-          {order.customer_phone && <span style={{ color:'#6b7db5' }}> · {order.customer_phone}</span>}
+      {/* Клиент */}
+      {(order.customer_name||order.customer_phone)&&(
+        <div style={{ display:'flex',alignItems:'center',gap:10,marginBottom:8,padding:'8px 12px',borderRadius:10,background:D.surface2 }}>
+          <span style={{ fontSize:16 }}>👤</span>
+          <div>
+            {order.customer_name&&<div style={{ fontWeight:700,fontSize:14,color:D.text }}>{order.customer_name}</div>}
+            {order.customer_phone&&<div style={{ fontSize:12,color:D.sub,marginTop:1 }}>{order.customer_phone}</div>}
+          </div>
         </div>
       )}
-      {order.comment && (
-        <div style={{ fontSize:13, color:'#8fa3cc', marginBottom:8, padding:'6px 10px', background:'rgba(255,255,255,0.03)', borderRadius:8 }}>
+
+      {/* Комментарий */}
+      {order.comment&&(
+        <div style={{ marginBottom:8,padding:'8px 12px',borderRadius:10,background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.2)',fontSize:13,color:'#fbbf24' }}>
           💬 {order.comment}
         </div>
       )}
 
-      {items?.length > 0 && (
-        <div style={{ display:'grid', gap:5, marginBottom:10, padding:'8px 10px', background:'rgba(255,255,255,0.02)', borderRadius:10 }}>
-          {items.map(i => {
-            let mods = []
-            try { mods = i.modifiers ? (typeof i.modifiers === 'string' ? JSON.parse(i.modifiers) : i.modifiers) : [] } catch {}
-            return (
+      {/* Состав */}
+      {items?.length>0&&(
+        <div style={{ marginBottom:12,padding:'10px 12px',borderRadius:12,background:D.surface2,display:'grid',gap:6 }}>
+          {items.map(i=>{
+            let mods=[]
+            try{mods=i.modifiers?(typeof i.modifiers==='string'?JSON.parse(i.modifiers):i.modifiers):[]}catch{}
+            return(
               <div key={i.id}>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, color:'#c8d5f5' }}>
-                  <span>{i.item_name} × {i.quantity}</span>
-                  <span style={{ color:'#8fa3cc' }}>{fmt(i.line_total)}</span>
+                <div style={{ display:'flex',justifyContent:'space-between',fontSize:14,color:D.text }}>
+                  <span style={{ fontWeight:700 }}>{i.item_name} <span style={{ color:D.sub,fontWeight:400 }}>× {i.quantity}</span></span>
+                  <span style={{ color:D.gold,fontWeight:700 }}>{fmt(i.line_total)}</span>
                 </div>
-                {mods.length > 0 && (
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:3, paddingLeft:8 }}>
-                    {mods.map(m => (
-                      <span key={m.id} style={{ fontSize:11, padding:'1px 7px', borderRadius:999, background:'rgba(34,197,94,0.1)', color:'#a0f0c0', border:'1px solid rgba(34,197,94,0.2)' }}>
-                        +{m.name}
-                      </span>
+                {mods.length>0&&(
+                  <div style={{ display:'flex',flexWrap:'wrap',gap:4,marginTop:4 }}>
+                    {mods.map(m=>(
+                      <span key={m.id} style={{ fontSize:11,padding:'2px 8px',borderRadius:999,background:'rgba(34,197,94,0.1)',color:'#86efac',border:'1px solid rgba(34,197,94,0.2)',fontWeight:600 }}>+{m.name}</span>
                     ))}
                   </div>
                 )}
@@ -206,15 +197,16 @@ function OrderCard({ order, items, branchLabel }) {
         </div>
       )}
 
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderTop:'1px solid rgba(255,255,255,0.06)', paddingTop:10, gap:10, flexWrap:'wrap' }}>
-        <div style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:900, fontSize:16 }}>{fmt(order.total)}</div>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
-          {actions.map(a => (
-            <button key={a.v} disabled={updating} onClick={() => changeStatus(a.v)} style={{
-              border:0, borderRadius:10, padding:'9px 14px', fontSize:13,
-              background: a.v==='cancelled'?'#7f1d1d': a.v==='completed'?'#14532d':'#f4a01d',
-              color: (a.v==='cancelled'||a.v==='completed')?'#f0f4ff':'#07122e',
-              fontFamily:"'Onest',sans-serif", fontWeight:700, cursor:updating?'default':'pointer', opacity:updating?0.6:1,
+      {/* Футер */}
+      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap' }}>
+        <div style={{ fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:20,color:D.text }}>{fmt(order.total)}</div>
+        <div style={{ display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end' }}>
+          {actions.map(a=>(
+            <button key={a.v} disabled={updating} onClick={()=>changeStatus(a.v)} style={{
+              border:0,borderRadius:10,padding:'9px 16px',fontSize:13,
+              background:a.clr,color:'#fff',
+              fontFamily:"'Nunito',sans-serif",fontWeight:800,cursor:updating?'default':'pointer',
+              opacity:updating?0.6:1,boxShadow:`0 3px 10px ${a.clr}40`,
             }}>{a.label}</button>
           ))}
         </div>
@@ -223,430 +215,341 @@ function OrderCard({ order, items, branchLabel }) {
   )
 }
 
-// ─── StopListTab ──────────────────────────────────────────────────────────────
-
+// ─── StopListTab ───────────────────────────────────────────────────────────────
 function StopListTab({ defaultBranch }) {
-  const [stopBranch,  setStopBranch]  = useState(defaultBranch || BRANCHES[0].id)
-  const [menuItems,   setMenuItems]   = useState([])
-  const [stopSet,     setStopSet]     = useState(new Set()) // id позиций в стопе
-  const [loading,     setLoading]     = useState(true)
-  const [toggling,    setToggling]    = useState(new Set()) // id в процессе переключения
+  const [stopBranch,setStopBranch]=useState(defaultBranch||BRANCHES[0].id)
+  const [menuItems,setMenuItems]=useState([])
+  const [stopSet,setStopSet]=useState(new Set())
+  const [loading,setLoading]=useState(true)
+  const [toggling,setToggling]=useState(new Set())
 
-  async function loadData(branchId) {
-    if (!supabase) return
+  async function loadData(branchId){
+    if(!supabase)return
     setLoading(true)
-    const stopBranchId = BRANCH_STOP_ID[branchId] || branchId
-    const [{ data: menu }, { data: stop }] = await Promise.all([
+    const stopId=BRANCH_STOP_ID[branchId]||branchId
+    const[{data:menu},{data:stop}]=await Promise.all([
       supabase.from('menu_items').select('id,name,category,variant,price,image_url').order('name'),
-      supabase.from('stop_list').select('menu_item_id').eq('branch_id', stopBranchId).eq('is_stopped', true),
+      supabase.from('stop_list').select('menu_item_id').eq('branch_id',stopId).eq('is_stopped',true),
     ])
-    setMenuItems(menu || [])
-    setStopSet(new Set((stop || []).map(r => r.menu_item_id)))
+    setMenuItems(menu||[])
+    setStopSet(new Set((stop||[]).map(r=>r.menu_item_id)))
     setLoading(false)
   }
+  useEffect(()=>{loadData(stopBranch)},[stopBranch])
 
-  useEffect(() => { loadData(stopBranch) }, [stopBranch])
-
-  async function toggle(itemId) {
-    if (toggling.has(itemId)) return
-    setToggling(prev => new Set([...prev, itemId]))
-
-    const isStopped = stopSet.has(itemId)
-
-    try {
-      const stopBranchId = BRANCH_STOP_ID[stopBranch] || stopBranch
-      const res = await fetch('/api/admin/stoplist', {
-        method: isStopped ? 'DELETE' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ branch_id: stopBranchId, menu_item_id: itemId }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || 'Ошибка')
-
-      if (isStopped) {
-        setStopSet(prev => { const n = new Set(prev); n.delete(itemId); return n })
-      } else {
-        setStopSet(prev => new Set([...prev, itemId]))
-      }
-    } catch (e) {
-      console.error('toggle stop error', e)
-    } finally {
-      setToggling(prev => { const n = new Set(prev); n.delete(itemId); return n })
-    }
+  async function toggle(itemId){
+    if(toggling.has(itemId))return
+    setToggling(prev=>new Set([...prev,itemId]))
+    const isStopped=stopSet.has(itemId)
+    try{
+      const stopId=BRANCH_STOP_ID[stopBranch]||stopBranch
+      const res=await fetch('/api/admin/stoplist',{method:isStopped?'DELETE':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({branch_id:stopId,menu_item_id:itemId})})
+      const data=await res.json()
+      if(!res.ok)throw new Error(data?.error||'Ошибка')
+      if(isStopped)setStopSet(prev=>{const n=new Set(prev);n.delete(itemId);return n})
+      else setStopSet(prev=>new Set([...prev,itemId]))
+    }catch(e){console.error(e)}
+    finally{setToggling(prev=>{const n=new Set(prev);n.delete(itemId);return n})}
   }
 
-  // Группируем по категории
-  const grouped = useMemo(() => {
-    const g = {}
-    for (const cat of CATEGORY_ORDER) g[cat] = []
-    for (const item of menuItems) {
-      const cat = normCat(item.category)
-      if (!g[cat]) g[cat] = []
-      g[cat].push(item)
-    }
+  const grouped=useMemo(()=>{
+    const g={};for(const c of CATEGORY_ORDER)g[c]=[]
+    for(const item of menuItems){const c=normCat(item.category);if(!g[c])g[c]=[];g[c].push(item)}
     return g
-  }, [menuItems])
-
-  const stoppedCount = stopSet.size
+  },[menuItems])
 
   return (
     <div>
-      {/* Вкладки точек — скрываем если назначена конкретная точка */}
-      <div style={{ display:'flex', gap:8, marginBottom:20, flexWrap:'wrap' }}>
-        {BRANCHES.filter(b => !defaultBranch || b.id === defaultBranch).map(b => (
-          <button key={b.id} onClick={() => setStopBranch(b.id)} style={{
-            border: stopBranch===b.id ? '2px solid #f4a01d' : '1px solid rgba(255,255,255,0.1)',
-            background: stopBranch===b.id ? 'rgba(244,160,29,0.12)' : 'rgba(255,255,255,0.03)',
-            color: stopBranch===b.id ? '#f4a01d' : '#c8d5f5',
-            borderRadius:999, padding:'9px 18px',
-            fontFamily:"'Onest',sans-serif", fontWeight:700, fontSize:14, cursor:'pointer',
-          }}>{b.name}</button>
-        ))}
-        {stoppedCount > 0 && (
-          <div style={{ display:'flex', alignItems:'center', padding:'9px 14px', borderRadius:999, background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)', color:'#f87171', fontSize:13, fontWeight:700 }}>
-            🚫 В стопе: {stoppedCount}
-          </div>
-        )}
-      </div>
+      {/* Выбор точки */}
+      {!defaultBranch&&(
+        <div style={{ display:'flex',gap:8,marginBottom:20 }}>
+          {BRANCHES.map(b=>(
+            <button key={b.id} onClick={()=>setStopBranch(b.id)} style={{
+              border:`2px solid ${stopBranch===b.id?D.accent:D.border}`,
+              background:stopBranch===b.id?'rgba(255,107,53,0.12)':D.surface2,
+              color:stopBranch===b.id?D.accent:D.sub,
+              borderRadius:999,padding:'9px 18px',fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:'pointer',
+            }}>{b.name}</button>
+          ))}
+        </div>
+      )}
 
-      {loading && <div style={{ color:'#6b7db5', padding:'20px 0' }}>Загрузка меню…</div>}
+      {stopSet.size>0&&(
+        <div style={{ marginBottom:16,padding:'8px 14px',borderRadius:10,background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',color:'#fca5a5',fontSize:13,fontWeight:700 }}>
+          🚫 Остановлено позиций: {stopSet.size}
+        </div>
+      )}
 
-      {!loading && CATEGORY_ORDER.map(cat => {
-        const catItems = grouped[cat] || []
-        if (!catItems.length) return null
-        const stoppedInCat = catItems.filter(i => stopSet.has(i.id)).length
-
-        return (
-          <div key={cat} style={{ marginBottom:16 }}>
-            {/* Заголовок категории */}
-            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
-              <div style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:700, fontSize:13, color:'#f4a01d' }}>
-                {CATEGORY_LABELS[cat] || cat}
-              </div>
-              {stoppedInCat > 0 && (
-                <span style={{ fontSize:11, padding:'2px 8px', borderRadius:999, background:'rgba(239,68,68,0.15)', color:'#f87171', border:'1px solid rgba(239,68,68,0.3)' }}>
-                  {stoppedInCat} в стопе
-                </span>
-              )}
-            </div>
-
-            {/* Позиции */}
-            <div style={{ display:'grid', gap:6 }}>
-              {catItems.map(item => {
-                const isStopped = stopSet.has(item.id)
-                const isToggling = toggling.has(item.id)
-
-                return (
-                  <div key={item.id} style={{
-                    display:'flex', justifyContent:'space-between', alignItems:'center',
-                    padding:'11px 14px', borderRadius:12, gap:12,
-                    background: isStopped ? 'rgba(239,68,68,0.07)' : 'rgba(255,255,255,0.03)',
-                    border: isStopped ? '1px solid rgba(239,68,68,0.25)' : '1px solid rgba(255,255,255,0.06)',
-                    opacity: isToggling ? 0.6 : 1,
-                    transition:'all 0.15s',
-                  }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      {item.image_url
-                        ? <img src={item.image_url} alt={item.name} style={{ width:40, height:40, borderRadius:8, objectFit:'cover', flexShrink:0, opacity: isStopped ? 0.4 : 1 }} />
-                        : <div style={{ width:40, height:40, borderRadius:8, background:'rgba(255,255,255,0.05)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>🍽</div>
-                      }
-                      <div>
-                        <div style={{ fontWeight:700, fontSize:14, color: isStopped ? '#9ca3af' : '#f0f4ff' }}>
-                          {isStopped && <span style={{ marginRight:6 }}>🚫</span>}
-                          {item.name}
-                          {item.variant && (
-                            <span style={{ marginLeft:6, fontSize:11, color:'#6b7db5' }}>
-                              {item.variant==='chicken'?'курица':item.variant==='pork'?'свинина':item.variant}
-                            </span>
-                          )}
+      {loading?<div style={{ color:D.sub,padding:20 }}>Загрузка…</div>:
+        CATEGORY_ORDER.map(cat=>{
+          const catItems=grouped[cat]||[]
+          if(!catItems.length)return null
+          return(
+            <div key={cat} style={{ marginBottom:20 }}>
+              <div style={{ fontWeight:800,fontSize:14,color:D.sub,marginBottom:8,textTransform:'uppercase',letterSpacing:1 }}>{CATEGORY_LABELS[cat]||cat}</div>
+              <div style={{ display:'grid',gap:6 }}>
+                {catItems.map(item=>{
+                  const isStopped=stopSet.has(item.id)
+                  const isToggling=toggling.has(item.id)
+                  return(
+                    <div key={item.id} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 14px',borderRadius:12,background:isStopped?'rgba(239,68,68,0.08)':D.surface,border:`1px solid ${isStopped?'rgba(239,68,68,0.3)':D.border}`,gap:12,transition:'all 0.15s' }}>
+                      <div style={{ display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0 }}>
+                        {item.image_url
+                          ?<img src={item.image_url} alt={item.name} style={{ width:36,height:36,borderRadius:8,objectFit:'cover',flexShrink:0,opacity:isStopped?0.4:1 }} />
+                          :<div style={{ width:36,height:36,borderRadius:8,background:D.surface2,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,opacity:isStopped?0.4:1 }}>🍽</div>
+                        }
+                        <div>
+                          <div style={{ fontWeight:700,fontSize:14,color:isStopped?D.sub:D.text,textDecoration:isStopped?'line-through':'none' }}>
+                            {isStopped&&'🚫 '}{item.name}
+                            {item.variant&&<span style={{ marginLeft:6,fontSize:11,color:D.sub,fontWeight:600 }}>{item.variant==='chicken'?'курица':item.variant==='pork'?'свинина':item.variant}</span>}
+                          </div>
+                          <div style={{ fontSize:12,color:D.gold,fontWeight:700,marginTop:2 }}>{fmt(item.price)}</div>
                         </div>
-                        <div style={{ fontSize:12, color:'#6b7db5', marginTop:2 }}>{fmt(item.price)}</div>
                       </div>
+                      {/* Тоггл */}
+                      <button onClick={()=>toggle(item.id)} disabled={isToggling} style={{
+                        width:52,height:28,borderRadius:999,border:'none',cursor:isToggling?'default':'pointer',
+                        background:isStopped?D.red:D.green,
+                        position:'relative',transition:'background 0.2s',flexShrink:0,opacity:isToggling?0.6:1,
+                      }}>
+                        <div style={{ position:'absolute',top:3,width:22,height:22,borderRadius:'50%',background:'#fff',transition:'left 0.2s',left:isStopped?3:27,boxShadow:'0 1px 4px rgba(0,0,0,0.3)' }} />
+                      </button>
                     </div>
-
-                    {/* Тоггл */}
-                    <button
-                      onClick={() => toggle(item.id)}
-                      disabled={isToggling}
-                      style={{
-                        position:'relative', width:52, height:28, borderRadius:14,
-                        border:0, cursor:isToggling?'default':'pointer',
-                        background: isStopped ? '#ef4444' : '#22c55e',
-                        transition:'background 0.2s', flexShrink:0,
-                      }}
-                    >
-                      <div style={{
-                        position:'absolute', top:3,
-                        left: isStopped ? 4 : 24,
-                        width:22, height:22, borderRadius:'50%',
-                        background:'#fff', transition:'left 0.2s',
-                        boxShadow:'0 1px 4px rgba(0,0,0,0.3)',
-                      }} />
-                    </button>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        )
-      })}
+          )
+        })
+      }
     </div>
   )
 }
 
-// ─── Admin ────────────────────────────────────────────────────────────────────
-
+// ─── AdminPage ─────────────────────────────────────────────────────────────────
 export default function AdminPage() {
-  const [session,        setSession]        = useState(null)
-  const [authChecked,    setAuthChecked]    = useState(false)
-  const [assignedBranch, setAssignedBranch] = useState(undefined) // undefined=загружается, null=мастер, 'id'=точка
-  const [tab,            setTab]            = useState('orders')
-  const [orders,      setOrders]      = useState([])
-  const [itemsMap,    setItemsMap]    = useState({})
-  const [loading,     setLoading]     = useState(true)
-  const [branch,      setBranch]      = useState('all')
-  const [showDone,    setShowDone]    = useState(false)
-  const [tick,        setTick]        = useState(0)
-  const prevNewRef = useRef(-1)
+  const [session,setSession]=useState(null)
+  const [authChecked,setAuthChecked]=useState(false)
+  const [assignedBranch,setAssignedBranch]=useState(undefined)
+  const [tab,setTab]=useState('orders')
+  const [branch,setBranch]=useState('all')
+  const [orders,setOrders]=useState([])
+  const [itemsMap,setItemsMap]=useState({})
+  const [loading,setLoading]=useState(false)
+  const [showDone,setShowDone]=useState(false)
+  const prevNewRef=useRef(-1)
+  const tickRef=useRef(0)
+  const [tick,setTick]=useState(0)
 
-  useEffect(() => {
-    if (!supabase) { setAuthChecked(true); return }
-    supabase.auth.getSession().then(async ({ data }) => {
+  const sb=supabase
+
+  // Auth
+  useEffect(()=>{
+    if(!sb){setAuthChecked(true);return}
+    sb.auth.getSession().then(async({data})=>{
       setSession(data.session)
-      if (data.session?.access_token) {
-        // Читаем привязку к точке через API (service role, надёжно)
-        try {
-          const res = await fetch('/api/admin/me', {
-            headers: { Authorization: `Bearer ${data.session.access_token}` }
-          })
-          const json = await res.json()
-          setAssignedBranch(json.branch_id ?? null)
-        } catch {
-          setAssignedBranch(null)
-        }
-      } else {
-        setAssignedBranch(null)
-      }
+      if(data.session?.access_token){
+        try{
+          const res=await fetch('/api/admin/me',{headers:{Authorization:`Bearer ${data.session.access_token}`}})
+          const json=await res.json()
+          setAssignedBranch(json.branch_id??null)
+        }catch{setAssignedBranch(null)}
+      }else{setAssignedBranch(null)}
       setAuthChecked(true)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, s) => {
+    const{data:{subscription}}=sb.auth.onAuthStateChange(async(_,s)=>{
       setSession(s)
-      if (s?.access_token) {
-        try {
-          const res = await fetch('/api/admin/me', {
-            headers: { Authorization: `Bearer ${s.access_token}` }
-          })
-          const json = await res.json()
-          setAssignedBranch(json.branch_id ?? null)
-        } catch {
-          setAssignedBranch(null)
-        }
-      } else {
-        setAssignedBranch(null)
-      }
+      if(s?.access_token){
+        try{const res=await fetch('/api/admin/me',{headers:{Authorization:`Bearer ${s.access_token}`}});const json=await res.json();setAssignedBranch(json.branch_id??null)}
+        catch{setAssignedBranch(null)}
+      }else{setAssignedBranch(null)}
     })
-    return () => subscription.unsubscribe()
-  }, [])
+    return()=>subscription.unsubscribe()
+  },[])
 
-  async function load() {
-    if (!session) return
-    if (assignedBranch === undefined) return // ещё не загрузили привязку — ждём
+  async function load(){
+    if(!session)return
+    if(assignedBranch===undefined)return
     setLoading(true)
-    // Если у пользователя назначена точка — принудительно фильтруем по ней
-    const effectiveBranch = assignedBranch ? assignedBranch : branch
-    const url = effectiveBranch === 'all' || !effectiveBranch ? '/api/admin/orders' : `/api/admin/orders?branch_id=${effectiveBranch}`
-    try {
-      const res = await fetch(url)
-      const data = await res.json()
-      setOrders(data.orders || [])
-      setItemsMap(data.itemsMap || {})
-    } catch {}
+    const effectiveBranch=assignedBranch?assignedBranch:branch
+    const url=effectiveBranch==='all'||!effectiveBranch?'/api/admin/orders':`/api/admin/orders?branch_id=${effectiveBranch}`
+    try{
+      const res=await fetch(url)
+      const data=await res.json()
+      setOrders(data.orders||[])
+      setItemsMap(data.itemsMap||{})
+    }catch{}
     setLoading(false)
   }
 
-  useEffect(() => { if (session && assignedBranch !== undefined) load() }, [session, branch, assignedBranch])
+  useEffect(()=>{if(session&&assignedBranch!==undefined)load()},[session,branch,assignedBranch])
 
-  useEffect(() => {
-    if (!supabase || !session) return
-    const ch = supabase.channel('admin-rt')
-      .on('postgres_changes', { event:'*', schema:'public', table:'orders' }, () => load())
+  // Realtime
+  useEffect(()=>{
+    if(!sb||!session)return
+    const ch=sb.channel('admin-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'orders'},()=>load())
       .subscribe()
-    return () => supabase.removeChannel(ch)
-  }, [session, branch])
+    return()=>sb.removeChannel(ch)
+  },[session,assignedBranch])
 
-  useEffect(() => {
-    const newCnt = orders.filter(o => o.status==='new').length
+  // Tick каждые 30 сек
+  useEffect(()=>{
+    const id=setInterval(()=>{tickRef.current++;setTick(tickRef.current)},30000)
+    return()=>clearInterval(id)
+  },[])
 
-    // Обновляем заголовок вкладки
-    if (newCnt > 0) {
-      document.title = `(${newCnt}) Админка — На Виражах`
-    } else {
-      document.title = 'Админка — На Виражах'
+  // Звук + счётчик вкладки
+  useEffect(()=>{
+    const newCnt=orders.filter(o=>o.status==='new').length
+    document.title=newCnt>0?`(${newCnt}) Админка — На Виражах`:'Админка — На Виражах'
+    if(prevNewRef.current!==-1&&newCnt>prevNewRef.current){
+      try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const osc=ctx.createOscillator();const gain=ctx.createGain();osc.connect(gain);gain.connect(ctx.destination);osc.frequency.value=880;gain.gain.setValueAtTime(0.3,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.5);osc.start(ctx.currentTime);osc.stop(ctx.currentTime+0.5)}catch{}
     }
+    prevNewRef.current=newCnt
+  },[orders])
 
-    // Звук при новых заказах
-    if (prevNewRef.current !== -1 && newCnt > prevNewRef.current) {
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)()
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain); gain.connect(ctx.destination)
-        osc.frequency.value = 880
-        gain.gain.setValueAtTime(0.3, ctx.currentTime)
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
-        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4)
-      } catch {}
+  // Аnim стиль
+  useEffect(()=>{
+    if(typeof document!=='undefined'&&!document.getElementById('admin-styles')){
+      const s=document.createElement('style');s.id='admin-styles'
+      s.textContent='@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}} ::-webkit-scrollbar{width:6px;height:6px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#2a2f45;border-radius:3px}'
+      document.head.appendChild(s)
     }
-    prevNewRef.current = newCnt
-  }, [orders])
+  },[])
 
-  useEffect(() => {
-    const id = setInterval(() => setTick(t => t+1), 30000)
-    return () => clearInterval(id)
-  }, [])
+  const active=useMemo(()=>orders.filter(o=>ACTIVE_ST.includes(o.status)).sort((a,b)=>{
+    const an=a.status==='new'?0:1,bn=b.status==='new'?0:1
+    if(an!==bn)return an-bn
+    return new Date(b.created_at)-new Date(a.created_at)
+  }),[orders])
+  const done=useMemo(()=>orders.filter(o=>DONE_ST.includes(o.status)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)),[orders])
 
-  const bName  = id => BRANCHES.find(b => b.id===id)?.name || id
-  const active = useMemo(() => orders.filter(o => ACTIVE_ST.includes(o.status)).sort((a,b) => {
-    // Новые заказы всегда сверху, остальные по времени (новые сначала)
-    const aIsNew = a.status === 'new' ? 0 : 1
-    const bIsNew = b.status === 'new' ? 0 : 1
-    if (aIsNew !== bIsNew) return aIsNew - bIsNew
-    return new Date(b.created_at) - new Date(a.created_at)
-  }), [orders])
-  const done   = useMemo(() => orders.filter(o => DONE_ST.includes(o.status)).sort((a,b) => new Date(b.created_at)-new Date(a.created_at)).slice(0,30), [orders])
-  const newCnt = active.filter(o => o.status==='new').length
+  function bName(id){ return BRANCHES.find(b=>b.id===id)?.name||id }
 
-  async function logout() { await supabase.auth.signOut(); setSession(null) }
-
-  if (!authChecked) return null
-
-  // Добавляем стиль для анимации
-  if (typeof document !== 'undefined' && !document.getElementById('admin-styles')) {
-    const style = document.createElement('style')
-    style.id = 'admin-styles'
-    style.textContent = '@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }'
-    document.head.appendChild(style)
-  }
-  if (!session) return <Login onLogin={setSession} />
+  if(!authChecked)return null
+  if(!session)return <Login onLogin={s=>setSession(s)} />
 
   return (
-    <main style={{ maxWidth:1100, margin:'0 auto', padding:'16px 12px 60px' }}>
-
+    <div style={{ background:D.bg,minHeight:'100vh',color:D.text,fontFamily:"'Nunito',sans-serif" }}>
       {/* Шапка */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10 }}>
+      <header style={{ background:D.surface,borderBottom:`1px solid ${D.border}`,padding:'12px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky',top:0,zIndex:50 }}>
         <div>
-          <div style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:900, fontSize:20 }}>Админка</div>
-          <div style={{ color:'#6b7db5', fontSize:13 }}>На Виражах</div>
+          <div style={{ fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:20,color:D.text }}>Админка</div>
+          <div style={{ fontSize:12,color:D.sub }}>На Виражах</div>
         </div>
-        <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
-          {newCnt > 0 && (
-            <div style={{ padding:'6px 14px', borderRadius:999, background:'rgba(244,160,29,0.15)', border:'1px solid rgba(244,160,29,0.4)', color:'#f4a01d', fontWeight:800, fontSize:14 }}>
-              🔔 {newCnt} {newCnt===1?'новый':'новых'}
+        <div style={{ display:'flex',gap:12,alignItems:'center' }}>
+          {active.filter(o=>o.status==='new').length>0&&(
+            <div style={{ display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:999,background:'rgba(255,107,53,0.15)',border:'1px solid rgba(255,107,53,0.4)',color:D.accent,fontSize:13,fontWeight:800,animation:'pulse 2s infinite' }}>
+              🔔 {active.filter(o=>o.status==='new').length} новых
             </div>
           )}
-
-          <a href="/" style={{ color:'#6b8ecf', fontSize:13, textDecoration:'none' }}>← Меню</a>
-          <button onClick={logout} style={{ border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, background:'transparent', color:'#8fa3cc', fontFamily:"'Onest',sans-serif", fontSize:13, padding:'8px 14px', cursor:'pointer' }}>Выйти</button>
+          <a href="/" style={{ color:D.sub,fontSize:13,textDecoration:'none',fontWeight:600 }}>← Меню</a>
+          <button onClick={()=>sb.auth.signOut()} style={{ border:`1px solid ${D.border}`,borderRadius:10,background:'transparent',color:D.sub,padding:'7px 14px',fontSize:13,cursor:'pointer',fontFamily:"'Nunito',sans-serif",fontWeight:700 }}>Выйти</button>
         </div>
-      </div>
+      </header>
 
-      {/* Главные вкладки: Заказы / Стоп-лист */}
-      <div style={{ display:'flex', gap:4, marginBottom:20, background:'rgba(255,255,255,0.03)', borderRadius:14, padding:4, width:'fit-content' }}>
-        {[['orders','📋 Заказы'],['stoplist','🚫 Стоп-лист']].map(([key,label]) => (
-          <button key={key} onClick={() => setTab(key)} style={{
-            border:0, borderRadius:10, padding:'10px 20px',
-            background: tab===key ? '#f4a01d' : 'transparent',
-            color: tab===key ? '#07122e' : '#8fa3cc',
-            fontFamily:"'Onest',sans-serif", fontWeight:700, fontSize:14, cursor:'pointer',
-            transition:'all 0.15s',
-          }}>{label}</button>
-        ))}
-      </div>
+      <main style={{ maxWidth:1000,margin:'0 auto',padding:'20px 16px' }}>
+        {/* Вкладки */}
+        <div style={{ display:'flex',gap:8,marginBottom:20 }}>
+          {[['orders','📋 Заказы'],['stoplist','🚫 Стоп-лист']].map(([key,label])=>(
+            <button key={key} onClick={()=>setTab(key)} style={{
+              border:`2px solid ${tab===key?D.accent:D.border}`,
+              background:tab===key?'rgba(255,107,53,0.12)':D.surface,
+              color:tab===key?D.accent:D.sub,
+              borderRadius:12,padding:'10px 20px',fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:'pointer',
+            }}>{label}</button>
+          ))}
+        </div>
 
-      {/* ── Вкладка: Стоп-лист ── */}
-      {tab === 'stoplist' && <StopListTab defaultBranch={assignedBranch} />}
+        {tab==='stoplist'&&<StopListTab defaultBranch={assignedBranch} />}
 
-      {/* ── Вкладка: Заказы ── */}
-      {tab === 'orders' && (
-        <>
-          {/* Фильтр по точке — только для мастера */}
-          <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-            {assignedBranch === null && [{ id:'all', name:'Все точки' }, ...BRANCHES].map(b => (
-              <button key={b.id} onClick={() => setBranch(b.id)} style={{
-                border: branch===b.id ? '2px solid #f4a01d' : '1px solid rgba(255,255,255,0.1)',
-                background: branch===b.id ? 'rgba(244,160,29,0.12)' : 'rgba(255,255,255,0.03)',
-                color: branch===b.id ? '#f4a01d' : '#c8d5f5',
-                borderRadius:999, padding:'9px 16px',
-                fontFamily:"'Onest',sans-serif", fontWeight:700, fontSize:14, cursor:'pointer',
-              }}>{b.name}</button>
-            ))}
-            {assignedBranch && (
-              <div style={{ padding:'9px 16px', borderRadius:999, background:'rgba(244,160,29,0.12)', border:'2px solid #f4a01d', color:'#f4a01d', fontFamily:"'Onest',sans-serif", fontWeight:700, fontSize:14 }}>
-                📍 {BRANCHES.find(b=>b.id===assignedBranch)?.name || assignedBranch}
-              </div>
-            )}
-            <button onClick={load} style={{ border:'1px solid rgba(255,255,255,0.1)', borderRadius:999, background:'transparent', color:'#8fa3cc', padding:'9px 16px', fontFamily:"'Onest',sans-serif", fontSize:14, cursor:'pointer' }}>↻</button>
-          </div>
-
-          {/* Счётчики статусов */}
-          {active.length > 0 && (
-            <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-              {Object.entries(LABELS).filter(([k]) => ACTIVE_ST.includes(k)).map(([k,label]) => {
-                const cnt = active.filter(o => o.status===k).length
-                if (!cnt) return null
-                return <div key={k} style={{ padding:'5px 12px', borderRadius:999, background:`${COLORS[k]}22`, border:`1px solid ${COLORS[k]}44`, color:COLORS[k], fontSize:12, fontWeight:700 }}>{label}: {cnt}</div>
-              })}
-              <div style={{ padding:'5px 12px', borderRadius:999, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'#8fa3cc', fontSize:12, fontWeight:700 }}>
-                В работе: {active.length} / 10
-              </div>
-            </div>
-          )}
-
-          {loading && <div style={{ color:'#6b7db5', padding:'20px 0' }}>Загрузка заказов…</div>}
-
-          {!loading && active.length===0 && (
-            <div style={{ textAlign:'center', padding:'48px 0', color:'#3d4f6e' }}>
-              <div style={{ fontSize:48, marginBottom:12 }}>🎉</div>
-              <div style={{ fontSize:16 }}>Активных заказов нет</div>
-            </div>
-          )}
-
-          <div style={{ display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', marginBottom:32 }}>
-            {active.map(order => (
-              <OrderCard key={order.id+'-'+tick} order={order} items={itemsMap[order.id]} branchLabel={branch==='all'?bName(order.branch_id):null} />
-            ))}
-          </div>
-
-          {done.length > 0 && (
-            <div>
-              <button onClick={() => setShowDone(v=>!v)} style={{ border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, background:'rgba(255,255,255,0.03)', color:'#6b7db5', fontFamily:"'Onest',sans-serif", fontWeight:700, fontSize:14, padding:'10px 18px', cursor:'pointer', marginBottom:12 }}>
-                {showDone ? '▲ Скрыть' : '▼ Отработанные'} ({done.length})
-              </button>
-              {showDone && (
-                <div style={{ display:'grid', gap:6, opacity:0.6 }}>
-                  {done.map(o => (
-                    <div key={o.id} style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:`1px solid ${o.review_rating ? 'rgba(244,160,29,0.2)' : 'rgba(255,255,255,0.05)'}`, fontSize:14 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                        <span style={{ fontFamily:"'Unbounded',sans-serif", fontWeight:700, color:'#6b7db5', minWidth:48 }}>{o.short_number||o.id.slice(0,8)}</span>
-                        <span style={{ color:'#4a5f8a', fontSize:13 }}>{bName(o.branch_id)}</span>
-                        <span style={{ color:'#4a5f8a', fontSize:13 }}>{o.customer_name||'—'}</span>
-                        <span style={{ color:COLORS[o.status], fontSize:12, fontWeight:700 }}>{LABELS[o.status]}</span>
-                        <span style={{ color:'#8fa3cc', fontWeight:700, marginLeft:'auto' }}>{fmt(o.total)}</span>
-                      </div>
-                      {o.review_rating && (
-                        <div style={{ marginTop:8, paddingTop:8, borderTop:'1px solid rgba(255,255,255,0.05)', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-                          <span style={{ fontSize:16 }}>{'⭐'.repeat(o.review_rating)}</span>
-                          {o.review_comment && <span style={{ color:'#8fa3cc', fontSize:13, fontStyle:'italic' }}>«{o.review_comment}»</span>}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+        {tab==='orders'&&(
+          <>
+            {/* Фильтр + обновить */}
+            <div style={{ display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center' }}>
+              {assignedBranch===null&&[{id:'all',name:'Все точки'},...BRANCHES].map(b=>(
+                <button key={b.id} onClick={()=>setBranch(b.id)} style={{
+                  border:`2px solid ${branch===b.id?D.accent:D.border}`,
+                  background:branch===b.id?'rgba(255,107,53,0.12)':D.surface,
+                  color:branch===b.id?D.accent:D.sub,
+                  borderRadius:999,padding:'8px 16px',fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13,cursor:'pointer',
+                }}>{b.name}</button>
+              ))}
+              {assignedBranch&&(
+                <div style={{ padding:'8px 16px',borderRadius:999,background:'rgba(255,107,53,0.12)',border:`2px solid ${D.accent}`,color:D.accent,fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13 }}>
+                  📍 {BRANCHES.find(b=>b.id===assignedBranch)?.name||assignedBranch}
                 </div>
               )}
+              <button onClick={load} style={{ border:`1px solid ${D.border}`,borderRadius:999,background:D.surface,color:D.sub,padding:'8px 14px',fontFamily:"'Nunito',sans-serif",fontSize:13,cursor:'pointer',marginLeft:'auto' }}>↻ Обновить</button>
             </div>
-          )}
-        </>
-      )}
-    </main>
+
+            {/* Счётчики */}
+            {active.length>0&&(
+              <div style={{ display:'flex',gap:8,marginBottom:16,flexWrap:'wrap' }}>
+                {[['new','Новых',STATUS_CLR.new],['confirmed','Подтв.',STATUS_CLR.confirmed],['preparing','Готовится',STATUS_CLR.preparing],['ready','Готово',STATUS_CLR.ready]].map(([st,label,clr])=>{
+                  const cnt=active.filter(o=>o.status===st).length
+                  if(!cnt)return null
+                  return(
+                    <div key={st} style={{ padding:'6px 14px',borderRadius:999,background:`${clr}18`,border:`1px solid ${clr}40`,color:clr,fontSize:13,fontWeight:800 }}>
+                      {label}: {cnt}
+                    </div>
+                  )
+                })}
+                <div style={{ marginLeft:'auto',padding:'6px 14px',borderRadius:999,background:D.surface,border:`1px solid ${D.border}`,color:D.sub,fontSize:13,fontWeight:700 }}>
+                  В работе: {active.length} / 10
+                </div>
+              </div>
+            )}
+
+            {/* Активные заказы */}
+            {loading&&<div style={{ color:D.sub,padding:'20px',textAlign:'center' }}>Загрузка…</div>}
+            {!loading&&active.length===0&&(
+              <div style={{ textAlign:'center',padding:'60px 20px',color:D.sub }}>
+                <div style={{ fontSize:48,marginBottom:12 }}>🎉</div>
+                <div style={{ fontSize:16,fontWeight:600 }}>Активных заказов нет</div>
+              </div>
+            )}
+            {!loading&&active.length>0&&(
+              <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:12,marginBottom:24 }}>
+                {active.map(order=>(
+                  <OrderCard key={order.id+'-'+tick} order={order} items={itemsMap[order.id]} branchLabel={branch==='all'?bName(order.branch_id):null} />
+                ))}
+              </div>
+            )}
+
+            {/* Архив */}
+            {done.length>0&&(
+              <div>
+                <button onClick={()=>setShowDone(v=>!v)} style={{ border:`1px solid ${D.border}`,borderRadius:12,background:D.surface,color:D.sub,fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:13,padding:'10px 18px',cursor:'pointer',marginBottom:12 }}>
+                  {showDone?'▲ Скрыть':'▼ Отработанные'} ({done.length})
+                </button>
+                {showDone&&(
+                  <div style={{ display:'grid',gap:6 }}>
+                    {done.map(o=>(
+                      <div key={o.id} style={{ padding:'12px 16px',borderRadius:12,background:D.surface,border:`1px solid ${o.review_rating?'rgba(255,107,53,0.2)':D.border}`,opacity:0.75 }}>
+                        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap' }}>
+                          <span style={{ fontFamily:"'Playfair Display',serif",fontWeight:900,color:D.accent,fontSize:16 }}>{o.short_number||o.id.slice(0,8)}</span>
+                          <span style={{ color:D.sub,fontSize:13 }}>{bName(o.branch_id)}</span>
+                          <span style={{ color:D.sub,fontSize:13 }}>{o.customer_name||'—'}</span>
+                          <span style={{ color:STATUS_CLR[o.status],fontSize:12,fontWeight:700 }}>{LABELS[o.status]}</span>
+                          <span style={{ color:D.gold,fontWeight:800,marginLeft:'auto',fontSize:14 }}>{fmt(o.total)}</span>
+                        </div>
+                        {o.review_rating&&(
+                          <div style={{ marginTop:8,paddingTop:8,borderTop:`1px solid ${D.border}`,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap' }}>
+                            <span style={{ fontSize:14 }}>{'⭐'.repeat(o.review_rating)}</span>
+                            {o.review_comment&&<span style={{ color:D.sub,fontSize:12,fontStyle:'italic' }}>«{o.review_comment}»</span>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </main>
+    </div>
   )
 }

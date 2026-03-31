@@ -83,16 +83,20 @@ function ReviewForm({ orderId, onDone }) {
 function Inner() {
   const searchParams=useSearchParams()
   const [input,setInput]=useState('')
+  const [phone,setPhone]=useState('')
   const [order,setOrder]=useState(null)
   const [items,setItems]=useState([])
   const [loading,setLoading]=useState(false)
   const [error,setError]=useState('')
   const [review,setReview]=useState(null)
+  const [waitMinutes,setWaitMinutes]=useState(null)
 
   async function search(forced){
     const val=String(forced??input).trim()
+    const ph=phone.trim().replace(/\D/g,'')
     setError('');setOrder(null);setItems([]);setReview(null)
     if (!val)return setError('Введите номер заказа')
+    if (!ph||ph.length<10)return setError('Введите номер телефона для подтверждения')
     if (!supabase)return setError('Supabase не настроен')
     setLoading(true)
     try {
@@ -103,6 +107,15 @@ function Inner() {
       if (e)throw e
       const best=pickBest(rows,val)
       if (!best)return setError('Заказ не найден')
+      
+      // Проверяем телефон — последние 10 цифр должны совпасть
+      const orderPhone=String(best.customer_phone||'').replace(/\D/g,'')
+      const inputLast10=ph.slice(-10)
+      const orderLast10=orderPhone.slice(-10)
+      if (orderLast10 && inputLast10 !== orderLast10) {
+        return setError('Телефон не совпадает с номером заказа')
+      }
+      
       const {data:oi,error:e2}=await supabase.from('order_items').select('*').eq('order_id',best.id).order('created_at')
       if (e2)throw e2
       setOrder(best);setItems(oi||[])
@@ -110,7 +123,7 @@ function Inner() {
         const {data:rv}=await supabase.from('order_reviews').select('rating,comment').eq('order_id',best.id).maybeSingle()
         setReview(rv||null)
       }
-    } catch{setError('Ошибка загрузки заказа')}
+    } catch(err){if(err.message)setError(err.message);else setError('Ошибка загрузки заказа')}
     finally{setLoading(false)}
   }
 
@@ -129,6 +142,17 @@ function Inner() {
     return()=>supabase.removeChannel(ch)
   },[order?.id])
 
+  // Обновляем время ожидания каждую минуту
+  useEffect(()=>{
+    if (!order?.id||['completed','cancelled','expired','ready'].includes(order?.status))return
+    async function fetchWait(){
+      try{const r=await fetch(`/api/orders/wait?order_id=${order.id}`);const d=await r.json();setWaitMinutes(d.wait_minutes)}catch{}
+    }
+    fetchWait()
+    const timer=setInterval(fetchWait,60000)
+    return()=>clearInterval(timer)
+  },[order?.id,order?.status])
+
   const st=order?.status
   const stepIdx=STATUS_STEPS.indexOf(st)
   const isDone=['completed','cancelled','expired'].includes(st)
@@ -143,14 +167,20 @@ function Inner() {
         <div style={{ fontFamily:"'Playfair Display',serif", fontWeight:900, fontSize:24, marginTop:12, color:C.text }}>Отследить заказ</div>
       </div>
 
-      <div style={{ display:'flex', gap:10, marginBottom:20, flexWrap:'wrap' }}>
+      <div style={{ display:'grid', gap:10, marginBottom:20 }}>
         <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search()}
           placeholder="Номер заказа, например 0007"
-          style={{ flex:1, minWidth:200, padding:'13px 16px', borderRadius:14, border:`1.5px solid ${C.border}`, background:'#fff', color:C.text, fontFamily:"'Nunito',sans-serif", fontSize:16, outline:'none' }} />
-        <button onClick={()=>search()} disabled={loading}
-          style={{ padding:'13px 22px', border:0, borderRadius:14, background:C.orange, color:'#fff', fontFamily:"'Nunito',sans-serif", fontWeight:800, fontSize:14, cursor:loading?'default':'pointer', opacity:loading?0.7:1 }}>
-          {loading?'…':'Найти'}
-        </button>
+          style={{ width:'100%', boxSizing:'border-box', padding:'13px 16px', borderRadius:14, border:`1.5px solid ${C.border}`, background:'#fff', color:C.text, fontFamily:"'Nunito',sans-serif", fontSize:16, outline:'none' }} />
+        <div style={{ display:'flex', gap:10 }}>
+          <input value={phone} onChange={e=>setPhone(e.target.value)} onKeyDown={e=>e.key==='Enter'&&search()}
+            placeholder="Ваш номер телефона" type="tel"
+            style={{ flex:1, padding:'13px 16px', borderRadius:14, border:`1.5px solid ${C.border}`, background:'#fff', color:C.text, fontFamily:"'Nunito',sans-serif", fontSize:16, outline:'none' }} />
+          <button onClick={()=>search()} disabled={loading}
+            style={{ padding:'13px 22px', border:0, borderRadius:14, background:C.orange, color:'#fff', fontFamily:"'Nunito',sans-serif", fontWeight:800, fontSize:14, cursor:loading?'default':'pointer', opacity:loading?0.7:1, flexShrink:0 }}>
+            {loading?'…':'Найти'}
+          </button>
+        </div>
+        <div style={{ fontSize:12, color:C.muted }}>🔒 Для подтверждения введите телефон, указанный при заказе</div>
       </div>
 
       {error && <div style={{ color:'#e53e3e', marginBottom:16, fontSize:14, fontWeight:600 }}>{error}</div>}
@@ -181,6 +211,23 @@ function Inner() {
             {order.customer_name && <div>👤 {order.customer_name}</div>}
             {order.created_at && <div>🕐 {formatDT(order.created_at)}</div>}
           </div>
+
+          {/* Время ожидания */}
+          {['new','confirmed','preparing'].includes(order.status) && waitMinutes != null && (
+            <div style={{ marginBottom:16, padding:'14px 16px', borderRadius:14, background: waitMinutes <= 10 ? '#f0fdf4' : order.wait_minutes <= 25 ? '#fffbeb' : '#fff5f0', border:`1.5px solid ${waitMinutes <= 10 ? '#86efac' : order.wait_minutes <= 25 ? '#fcd34d' : '#fbd0bc'}` }}>
+              <div style={{ fontWeight:800, fontSize:14, color: waitMinutes <= 10 ? '#16a34a' : order.wait_minutes <= 25 ? '#d97706' : C.orange, marginBottom:4 }}>
+                ⏱ Примерное время ожидания: ~{waitMinutes} мин
+              </div>
+              <div style={{ fontSize:12, color:C.muted }}>
+                {waitMinutes <= 10 ? 'Почти готово!' : waitMinutes <= 25 ? 'Готовим ваш заказ' : 'Есть очередь, ждите немного'}
+              </div>
+            </div>
+          )}
+          {order.status === 'ready' && (
+            <div style={{ marginBottom:16, padding:'14px 16px', borderRadius:14, background:'#f0fdf4', border:'1.5px solid #86efac' }}>
+              <div style={{ fontWeight:800, fontSize:16, color:'#16a34a' }}>🎉 Ваш заказ готов! Подходите!</div>
+            </div>
+          )}
 
           {items.length>0 && (
             <div style={{ display:'grid', gap:8, marginBottom:16 }}>
