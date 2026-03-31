@@ -7,7 +7,7 @@ const BRANCHES = [
   { id:'nv-fr-002', name:'Аэропорт', fullName:'На Виражах — Аэропорт', phone:'+7 902 452-42-22', address:'мкр. Аэропорт, 7', stopId:'airport' },
   { id:'nv-sh-001', name:'Конечная',  fullName:'На Виражах — Конечная',  phone:'+7 908 593-26-88', address:'ул. Конечная, 10, корп. 4', stopId:'konechnaya' },
 ]
-const CATEGORY_ORDER  = ['shawarma','shawarma_addons','burgers','hotdogs','shashlik','quesadilla','fries','sauces','drinks']
+const CATEGORY_ORDER  = ['shawarma','burgers','hotdogs','shashlik','quesadilla','fries','sauces','drinks']
 const CATEGORY_LABELS = { shawarma:'Шаурма', shawarma_addons:'Добавки', burgers:'Бургеры', hotdogs:'Хот-доги', shashlik:'Шашлык', quesadilla:'Кесадилья', fries:'Фритюр', sauces:'Соусы', drinks:'Напитки' }
 const CATEGORY_EMOJI  = { shawarma:'🌯', shawarma_addons:'➕', burgers:'🍔', hotdogs:'🌭', shashlik:'🍖', quesadilla:'🫓', fries:'🍟', sauces:'🥫', drinks:'☕' }
 const CART_KEY = 'nv_cart_v5'
@@ -240,7 +240,7 @@ function UpsellScreen({ cart, items, onAddItem, onProceed }) {
   const sw0=cart.filter(e=>{const item=byId.get(e.id);return item?.category==='shawarma'&&(!e.modifiers||e.modifiers.length===0)})
   const coffeeKw=['эспрессо','американо','капучино','латте','раф','макиато']
   const sections=[]
-  if(sw0.length){const a=items.filter(i=>i.category==='shawarma_addons'&&Number(i.price)>0&&!i.coming_soon);if(a.length)sections.push({key:'addons',title:'Добавки к шаурме',emoji:'➕',items:a.slice(0,6)})}
+  // Добавки не предлагаем отдельно — они выбираются при заказе шаурмы
   if(!cartCats.has('fries')){const f=items.filter(i=>i.category==='fries'&&Number(i.price)>0&&!i.coming_soon);if(f.length)sections.push({key:'fries',title:'Картошка?',emoji:'🍟',items:f.slice(0,4)})}
   if(cartCats.has('fries')&&!cartCats.has('sauces')){const s=items.filter(i=>i.category==='sauces'&&Number(i.price)>0&&!i.coming_soon);if(s.length)sections.push({key:'sauces',title:'Соус?',emoji:'🥫',items:s.slice(0,4)})}
   if(!cartCats.has('drinks')){const d=items.filter(i=>i.category==='drinks'&&Number(i.price)>0&&!i.coming_soon).sort((a,b)=>{const ac=coffeeKw.some(k=>a.name.toLowerCase().includes(k))?1:0,bc=coffeeKw.some(k=>b.name.toLowerCase().includes(k))?1:0;return ac-bc});if(d.length)sections.push({key:'drinks',title:'Выпить?',emoji:'☕',items:d})}
@@ -529,6 +529,11 @@ export default function Page() {
     async function subscribePush(){
       try{const reg=await navigator.serviceWorker.register('/sw.js');await navigator.serviceWorker.ready;const ex=await reg.pushManager.getSubscription();const sub=ex||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY});await fetch('/api/push/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subscription:sub.toJSON(),order_id:successOrder.id})})}catch(e){console.log(e)}
     }
+    // Сохраняем номер заказа и телефон для быстрого поиска
+    if (typeof window !== 'undefined') {
+      try { localStorage.setItem('nv_last_order', JSON.stringify({ number: num, phone: successOrder.customer_phone || '' })) } catch {}
+    }
+
     return (
       <main style={{ maxWidth:480,margin:'0 auto',padding:'60px 16px',textAlign:'center',background:T.bg,minHeight:'100vh' }}>
         <div style={{ fontSize:72,marginBottom:16 }}>✅</div>

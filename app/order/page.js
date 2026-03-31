@@ -129,8 +129,12 @@ function Inner() {
 
   useEffect(()=>{
     const num=String(searchParams.get('number')||'').trim()
-    if (!num)return
-    setInput(num);search(num)
+    if (num){ setInput(num); search(num); return }
+    // Если нет параметра в URL — пробуем загрузить последний заказ из localStorage
+    try {
+      const saved=JSON.parse(localStorage.getItem('nv_last_order')||'null')
+      if (saved?.number){ setInput(saved.number); if(saved.phone)setPhone(saved.phone) }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[searchParams])
 
@@ -214,12 +218,9 @@ function Inner() {
 
           {/* Время ожидания */}
           {['new','confirmed','preparing'].includes(order.status) && waitMinutes != null && (
-            <div style={{ marginBottom:16, padding:'14px 16px', borderRadius:14, background: waitMinutes <= 10 ? '#f0fdf4' : order.wait_minutes <= 25 ? '#fffbeb' : '#fff5f0', border:`1.5px solid ${waitMinutes <= 10 ? '#86efac' : order.wait_minutes <= 25 ? '#fcd34d' : '#fbd0bc'}` }}>
-              <div style={{ fontWeight:800, fontSize:14, color: waitMinutes <= 10 ? '#16a34a' : order.wait_minutes <= 25 ? '#d97706' : C.orange, marginBottom:4 }}>
+            <div style={{ marginBottom:16, padding:'14px 16px', borderRadius:14, background:'#fffbeb', border:'1.5px solid #fcd34d' }}>
+              <div style={{ fontWeight:800, fontSize:14, color:'#d97706' }}>
                 ⏱ Примерное время ожидания: ~{waitMinutes} мин
-              </div>
-              <div style={{ fontSize:12, color:C.muted }}>
-                {waitMinutes <= 10 ? 'Почти готово!' : waitMinutes <= 25 ? 'Готовим ваш заказ' : 'Есть очередь, ждите немного'}
               </div>
             </div>
           )}
