@@ -359,6 +359,14 @@ function CheckoutModal({ cartItems, total, branch, previewNum, previewLoading, o
 
         {err&&<div style={{ color:'#e53e3e',fontSize:14,marginBottom:10,padding:'0 16px',fontWeight:600 }}>{err}</div>}
 
+        {/* Предупреждение о шашлыке */}
+        {cartItems.some(i=>i.category==='shashlik')&&(
+          <div style={{ margin:'0 16px 12px',padding:'12px 14px',borderRadius:14,background:'#fff7ed',border:'1.5px solid #fed7aa' }}>
+            <div style={{ fontWeight:800,fontSize:14,color:'#c2410c',marginBottom:4 }}>🔥 В заказе есть шашлык</div>
+            <div style={{ fontSize:13,color:'#9a3412',lineHeight:1.5 }}>Шашлык готовится заранее — время ожидания может составить до 50 минут. Пожалуйста, учитывайте это при заказе.</div>
+          </div>
+        )}
+
         <div style={{ padding:'12px 16px 20px',borderTop:`1px solid ${T.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10 }}>
           <div>
             <div style={{ color:T.sub,fontSize:13 }}>Итого</div>
