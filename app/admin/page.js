@@ -244,23 +244,23 @@ function StopListTab({ defaultBranch }) {
   useEffect(() => { loadData(stopBranch) }, [stopBranch])
 
   async function toggle(itemId) {
-    if (!supabase || toggling.has(itemId)) return
+    if (toggling.has(itemId)) return
     setToggling(prev => new Set([...prev, itemId]))
 
     const isStopped = stopSet.has(itemId)
 
     try {
+      const res = await fetch('/api/admin/stoplist', {
+        method: isStopped ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch_id: stopBranch, menu_item_id: itemId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || 'Ошибка')
+
       if (isStopped) {
-        // Убираем из стопа
-        await supabase.from('stop_list')
-          .delete()
-          .eq('branch_id', stopBranch)
-          .eq('menu_item_id', itemId)
         setStopSet(prev => { const n = new Set(prev); n.delete(itemId); return n })
       } else {
-        // Добавляем в стоп
-        await supabase.from('stop_list')
-          .upsert({ branch_id: stopBranch, menu_item_id: itemId, is_stopped: true }, { onConflict: 'branch_id,menu_item_id' })
         setStopSet(prev => new Set([...prev, itemId]))
       }
     } catch (e) {
