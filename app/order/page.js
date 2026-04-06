@@ -142,7 +142,16 @@ function Inner() {
   useEffect(()=>{
     if (!supabase||!order?.id)return
     const ch=supabase.channel(`order-${order.id}`)
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`id=eq.${order.id}`},p=>{setOrder(p.new)})
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`id=eq.${order.id}`},p=>{
+        setOrder(p.new)
+        // При смене статуса обновляем время ожидания
+        if (['confirmed','preparing'].includes(p.new.status)) {
+          fetch(`/api/orders/wait?order_id=${order.id}`)
+            .then(r=>r.json())
+            .then(d=>{setWaitMinutes(d.wait_minutes);setHasShashlik(d.has_shashlik||false)})
+            .catch(()=>{})
+        }
+      })
       .subscribe()
     return()=>supabase.removeChannel(ch)
   },[order?.id])

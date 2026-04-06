@@ -287,6 +287,20 @@ function CheckoutModal({ cartItems, total, branch, previewNum, previewLoading, o
   const [comment,setComment]=useState('')
   const [err,setErr]=useState('')
   const [busy,setBusy]=useState(false)
+  const [estimate,setEstimate]=useState(null) // {wait_minutes, has_shashlik, queue_length}
+
+  // Загружаем оценку времени при открытии
+  useEffect(()=>{
+    if (!cartItems?.length) return
+    fetch('/api/orders/estimate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        branch_id: branch.id,
+        items: cartItems.map(i=>({id:i.id, qty:i.qty||i.quantity||1}))
+      })
+    }).then(r=>r.json()).then(d=>setEstimate(d)).catch(()=>{})
+  },[])
   const inpStyle={ width:'100%',boxSizing:'border-box',padding:'13px 16px',borderRadius:14,border:`1.5px solid ${T.border}`,background:T.surfaceAlt,color:T.text,fontFamily:"'Nunito',sans-serif",fontSize:15,outline:'none' }
 
   async function submit(){
@@ -358,6 +372,20 @@ function CheckoutModal({ cartItems, total, branch, previewNum, previewLoading, o
         </div>
 
         {err&&<div style={{ color:'#e53e3e',fontSize:14,marginBottom:10,padding:'0 16px',fontWeight:600 }}>{err}</div>}
+
+        {/* Время ожидания */}
+        {estimate?.wait_minutes && (
+          <div style={{ margin:'0 16px 12px',padding:'12px 14px',borderRadius:14,background:'#fffbeb',border:'1.5px solid #fed7aa' }}>
+            <div style={{ fontWeight:800,fontSize:14,color:'#d97706',marginBottom:2 }}>
+              ⏱ Примерное время ожидания: ~{estimate.wait_minutes} мин
+            </div>
+            {estimate.queue_length > 0 && (
+              <div style={{ fontSize:12,color:'#92400e' }}>
+                Сейчас в очереди {estimate.queue_length} {estimate.queue_length===1?'заказ':estimate.queue_length<5?'заказа':'заказов'}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Предупреждение о шашлыке */}
         {cartItems.some(i=>i.category==='shashlik')&&(
