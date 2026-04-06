@@ -97,7 +97,7 @@ function Inner() {
     const ph=phone.trim().replace(/\D/g,'')
     setError('');setOrder(null);setItems([]);setReview(null)
     if (!val)return setError('Введите номер заказа')
-    if (!ph||ph.length<10)return setError('Введите номер телефона для подтверждения')
+    if (!ph||ph.length<7)return setError('Введите номер телефона для подтверждения')
     if (!supabase)return setError('Supabase не настроен')
     setLoading(true)
     try {
