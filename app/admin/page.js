@@ -116,68 +116,8 @@ function OrderCard({ order, items, branchLabel }) {
   }
 
   function printOrder(){
-    const num = order.short_number||order.order_number||order.id.slice(0,8)
-    const branchName = BRANCHES.find(b=>b.id===order.branch_id)?.name||order.branch_id||''
-    const time = new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})
-    const itemsList = (items||[]).map(i => {
-      let mods = []
-      try { mods = i.modifiers?(typeof i.modifiers==='string'?JSON.parse(i.modifiers):i.modifiers):[] } catch {}
-      const modsStr = mods.length ? `\n  + ${mods.map(m=>m.name).join(', ')}` : ''
-      return `${i.item_name} x${i.quantity}${modsStr}`
-    }).join('\n')
-
-    const win = window.open('','_blank','width=400,height=600')
-    win.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Заказ ${num}</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: 'Courier New', monospace; font-size: 14px; padding: 10px; width: 80mm; }
-          .center { text-align: center; }
-          .big { font-size: 32px; font-weight: bold; }
-          .line { border-top: 1px dashed #000; margin: 6px 0; }
-          .item { margin: 4px 0; }
-          .mod { font-size: 12px; padding-left: 12px; }
-          .total { font-size: 18px; font-weight: bold; }
-          @media print {
-            body { width: auto; }
-            @page { margin: 5mm; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="center">
-          <div style="font-size:16px;font-weight:bold;">НА ВИРАЖАХ</div>
-          <div style="font-size:12px;">${branchName}</div>
-        </div>
-        <div class="line"></div>
-        <div class="center">
-          <div style="font-size:12px;">ЗАКАЗ</div>
-          <div class="big">${num}</div>
-          <div style="font-size:12px;">${time}</div>
-        </div>
-        <div class="line"></div>
-        ${order.customer_name ? `<div>Клиент: <b>${order.customer_name}</b></div>` : ''}
-        ${order.comment ? `<div style="font-size:12px;">Комм: ${order.comment}</div>` : ''}
-        <div class="line"></div>
-        <div>
-          ${(items||[]).map(i => {
-            let mods = []
-            try { mods = i.modifiers?(typeof i.modifiers==='string'?JSON.parse(i.modifiers):i.modifiers):[] } catch {}
-            return `<div class="item"><b>${i.item_name}</b> x${i.quantity} — ${i.line_total} р.${mods.length?`<div class="mod">+ ${mods.map(m=>m.name).join(', ')}</div>`:''}</div>`
-          }).join('')}
-        </div>
-        <div class="line"></div>
-        <div class="center total">ИТОГО: ${order.total} р.</div>
-        <div class="line"></div>
-        <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script>
-      </body>
-      </html>
-    `)
-    win.document.close()
+    // Открываем отдельную страницу печати — работает и в браузере и в PWA
+    window.open(`/admin/print?id=${order.id}`, '_blank')
   }
 
   // Таймер
