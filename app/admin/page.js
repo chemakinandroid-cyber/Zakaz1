@@ -265,7 +265,8 @@ function OrderCard({ order, items, branchLabel }) {
       )}
 
       {/* Футер */}
-      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap' }}>
+      {/* Итого + кнопки действий */}
+      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:8 }}>
         <div style={{ fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:20,color:D.text }}>{fmt(order.total)}</div>
         <div style={{ display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end' }}>
           {actions.map(a=>(
@@ -276,15 +277,17 @@ function OrderCard({ order, items, branchLabel }) {
               opacity:updating?0.6:1,boxShadow:`0 3px 10px ${a.clr}40`,
             }}>{a.label}</button>
           ))}
-          {/* Кнопка печати — всегда доступна для активных заказов */}
-          {!DONE_ST.includes(order.status) && (
-            <button onClick={printOrder} title="Распечатать заказ" style={{
-              border:`1px solid ${D.border}`,borderRadius:10,padding:'9px 12px',fontSize:16,
-              background:D.surface2,color:D.sub,cursor:'pointer',
-            }}>🖨️</button>
-          )}
         </div>
       </div>
+      {/* Кнопка печати — отдельная строка, всегда видна */}
+      {!DONE_ST.includes(order.status) && (
+        <button onClick={printOrder} style={{
+          width:'100%',border:`1px solid ${D.border}`,borderRadius:10,
+          padding:'8px',fontSize:14,background:D.surface2,color:D.sub,
+          cursor:'pointer',fontFamily:"'Nunito',sans-serif",fontWeight:700,
+          display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+        }}>🖨️ Распечатать заказ для кухни</button>
+      )}
     </div>
   )
 }
