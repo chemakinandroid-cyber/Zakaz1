@@ -2,16 +2,36 @@ export const dynamic = 'force-dynamic'
 
 import { getServerSupabase } from '@/lib/serverSupabase'
 
-// Реальное время приготовления — один повар, последовательно
+// Время приготовления одной порции (минуты)
 const COOK_TIME = {
-  shawarma: 7, burgers: 8, hotdogs: 7,
-  quesadilla: 6, fries: 5, shashlik: 50,
-  sauces: 0, drinks: 0, shawarma_addons: 0, other: 5,
+  // Основные блюда (гриль/сборка) — последовательно
+  shawarma: 7,
+  burgers: 8,
+  hotdogs: 7,
+  quesadilla: 6,
+  shashlik: 50,
+  // Фритюр — параллельно с основными, max 4 порции за раз
+  fries: 4,          // картофель фри и по-деревенски
+  nuggets: 4,        // наггетсы
+  wings: 9,          // крылья (самые долгие)
+  shrimp: 4,         // креветки
+  cheese_sticks: 4,  // сырные палочки
+  // Не требуют готовки
+  sauces: 0, drinks: 0, shawarma_addons: 0, other: 0,
 }
-// Время на каждую следующую единицу той же категории
-const REPEAT_TIME = {
-  shawarma: 6, burgers: 7, hotdogs: 5,
-  quesadilla: 5, fries: 2, shashlik: 15, other: 4,
+
+// Категории фритюра
+const FRYER_CATS = new Set(['fries','nuggets','wings','shrimp','cheese_sticks'])
+
+// Маппинг item_id prefix → категория фритюра
+function getFryerSubCat(itemId, itemName) {
+  const n = (itemName||'').toLowerCase()
+  if (n.includes('крыл')) return 'wings'
+  if (n.includes('креветк')) return 'shrimp'
+  if (n.includes('наггет')) return 'nuggets'
+  if (n.includes('сырные палочки') || n.includes('палочк')) return 'cheese_sticks'
+  if (n.includes('картофел') || n.includes('фри') || n.includes('деревен')) return 'fries'
+  return 'fries'
 }
 
 function normCat(c) {
@@ -19,21 +39,79 @@ function normCat(c) {
   return r === 'fryer' ? 'fries' : r || 'other'
 }
 
+// Считаем время фритюра с учётом параллельности (max 4 порции за загрузку)
+function calcFryerTime(fryerItems) {
+  if (!fryerItems.length) return 0
+
+  // Группируем по загрузкам — максимум 4 порции за раз
+  // Сортируем по времени убывания (самые долгие первыми)
+  const portions = []
+  for (const item of fryerItems) {
+    const t = COOK_TIME[item.subCat] || 4
+    for (let i = 0; i < item.qty; i++) {
+      portions.push({ t, subCat: item.subCat })
+    }
+  }
+  portions.sort((a,b) => b.t - a.t)
+
+  // Жадно пакуем в загрузки по 4
+  let totalFryerTime = 0
+  let i = 0
+  while (i < portions.length) {
+    const batch = portions.slice(i, i+4)
+    const batchTime = Math.max(...batch.map(p => p.t))
+    totalFryerTime += batchTime
+    i += 4
+  }
+  return totalFryerTime
+}
+
+// Считаем общее время заказа с параллельностью
 function calcOrderCookTime(items) {
   if (!items?.length) return 8
-  const cats = {}
+
+  const mainItems = []  // гриль/сборка
+  const fryerItems = [] // фритюр
+
   for (const item of items) {
     const cat = normCat(item.category)
-    if (!cats[cat]) cats[cat] = 0
-    cats[cat] += (item.quantity || 1)
+    const qty = item.quantity || 1
+
+    if (cat === 'fries' || cat === 'other' && FRYER_CATS.has(getFryerSubCat('', item.item_name||''))) {
+      fryerItems.push({ subCat: getFryerSubCat(item.item_id||'', item.item_name||''), qty })
+    } else if (['shawarma','burgers','hotdogs','quesadilla','shashlik'].includes(cat)) {
+      mainItems.push({ cat, qty })
+    } else if (cat === 'fries') {
+      fryerItems.push({ subCat: 'fries', qty })
+    }
   }
-  let total = 0
-  for (const [cat, qty] of Object.entries(cats)) {
-    const base = COOK_TIME[cat] ?? COOK_TIME.other
-    const repeat = REPEAT_TIME[cat] ?? REPEAT_TIME.other
-    if (base === 0) continue
-    total += base + Math.max(0, qty - 1) * repeat
+
+  // Время основных блюд — последовательно
+  let mainTime = 0
+  for (const item of mainItems) {
+    const base = COOK_TIME[item.cat] || 5
+    // Повторы: каждое следующее блюдо той же категории немного быстрее
+    const repeatTime = item.cat === 'shawarma' ? 6 : item.cat === 'burgers' ? 7 : 5
+    mainTime += base + Math.max(0, item.qty - 1) * repeatTime
   }
+
+  // Время фритюра
+  const fryerTime = calcFryerTime(fryerItems)
+
+  // Параллельность: фритюр идёт одновременно с основными блюдами
+  // Но если основных нет — фритюр идёт сам по себе
+  // Если фритюр дольше основных — добавляем разницу
+  let total
+  if (mainTime === 0) {
+    total = fryerTime
+  } else if (fryerTime <= mainTime) {
+    // Фритюр успевает пока готовятся основные — параллельно
+    total = mainTime
+  } else {
+    // Фритюр дольше — добавляем остаток
+    total = mainTime + (fryerTime - mainTime)
+  }
+
   return Math.max(5, total)
 }
 
@@ -53,7 +131,7 @@ export async function GET(req) {
     }
 
     const { data: orderItems } = await supabase
-      .from('order_items').select('quantity, item_id').eq('order_id', order_id)
+      .from('order_items').select('quantity, item_id, item_name').eq('order_id', order_id)
 
     let itemsWithCat = orderItems || []
     if (itemsWithCat.length) {
@@ -68,6 +146,7 @@ export async function GET(req) {
 
     const thisOrderTime = calcOrderCookTime(itemsWithCat)
 
+    // Очередь
     const { data: aheadOrders } = await supabase
       .from('orders').select('id, created_at, status')
       .eq('branch_id', order.branch_id)
