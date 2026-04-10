@@ -376,11 +376,15 @@ function CheckoutModal({ cartItems, total, branch, previewNum, previewLoading, o
         {/* Время ожидания */}
         {estimate?.wait_minutes && (
           <div style={{ margin:'0 16px 12px',padding:'12px 14px',borderRadius:14,background:'#fffbeb',border:'1.5px solid #fed7aa' }}>
-            <div style={{ fontWeight:800,fontSize:14,color:'#d97706',marginBottom:2 }}>
+            <div style={{ fontWeight:800,fontSize:14,color:'#d97706',marginBottom:4 }}>
               ⏱ Примерное время ожидания: ~{estimate.wait_minutes} мин
             </div>
+            {estimate.has_shashlik
+              ? <div style={{ fontSize:12,color:'#b45309',fontWeight:600 }}>🔥 В заказе есть шашлык — время может быть больше</div>
+              : <div style={{ fontSize:12,color:'#92400e' }}>Если заказ несложный — повар может приготовить быстрее</div>
+            }
             {estimate.queue_length > 0 && (
-              <div style={{ fontSize:12,color:'#92400e' }}>
+              <div style={{ fontSize:12,color:'#92400e',marginTop:3 }}>
                 Сейчас в очереди {estimate.queue_length} {estimate.queue_length===1?'заказ':estimate.queue_length<5?'заказа':'заказов'}
               </div>
             )}

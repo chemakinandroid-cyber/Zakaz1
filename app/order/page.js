@@ -232,11 +232,18 @@ function Inner() {
               <div style={{ fontWeight:800, fontSize:14, color:'#d97706' }}>
                 ⏱ Примерное время ожидания: ~{waitMinutes} мин
               </div>
-              {hasShashlik && (
-                <div style={{ marginTop:6, fontSize:13, color:'#b45309', fontWeight:600 }}>
-                  🔥 В вашем заказе есть шашлык — он готовится заранее, время может быть больше
-                </div>
-              )}
+              {hasShashlik
+                ? <div style={{ marginTop:6, fontSize:13, color:'#b45309', fontWeight:600 }}>
+                    🔥 В вашем заказе есть шашлык — он готовится заранее, время может быть больше
+                  </div>
+                : waitMinutes <= 10
+                  ? <div style={{ marginTop:6, fontSize:13, color:'#16a34a', fontWeight:600 }}>
+                      ✨ Совсем скоро будет готово!
+                    </div>
+                  : <div style={{ marginTop:6, fontSize:12, color:'#92400e' }}>
+                      Если заказ несложный — повар может приготовить быстрее
+                    </div>
+              }
             </div>
           )}
           {order.status === 'ready' && (
