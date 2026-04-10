@@ -86,14 +86,18 @@ function calcOrderCookTime(items) {
     }
   }
 
-  // Время основных блюд — последовательно
+  // Время основных блюд — последовательно, но с коэффициентом перекрытия
+  // Повар может начать следующее блюдо пока предыдущее доходит
   let mainTime = 0
+  const uniqueCats = new Set(mainItems.map(i => i.cat))
   for (const item of mainItems) {
     const base = COOK_TIME[item.cat] || 5
-    // Повторы: каждое следующее блюдо той же категории немного быстрее
     const repeatTime = item.cat === 'shawarma' ? 6 : item.cat === 'burgers' ? 7 : 5
     mainTime += base + Math.max(0, item.qty - 1) * repeatTime
   }
+  // Если несколько разных категорий — применяем коэффициент перекрытия 0.8
+  // Повар параллелит: пока котлета жарится — собирает шаурму
+  if (uniqueCats.size >= 2) mainTime = Math.round(mainTime * 0.8)
 
   // Время фритюра
   const fryerTime = calcFryerTime(fryerItems)

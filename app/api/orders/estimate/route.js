@@ -52,11 +52,13 @@ function calcCookTime(items) {
     }
   }
   let mainTime = 0
+  const uniqueCats = new Set(mainItems.map(i => i.cat))
   for (const item of mainItems) {
     const base = COOK_TIME[item.cat] || 5
     const repeat = item.cat === 'shawarma' ? 6 : item.cat === 'burgers' ? 7 : 5
     mainTime += base + Math.max(0, item.qty - 1) * repeat
   }
+  if (uniqueCats.size >= 2) mainTime = Math.round(mainTime * 0.8)
   const fryerTime = calcFryerTime(fryerItems)
   let total = mainTime === 0 ? fryerTime : fryerTime <= mainTime ? mainTime : mainTime + (fryerTime - mainTime)
   return Math.max(5, total)
