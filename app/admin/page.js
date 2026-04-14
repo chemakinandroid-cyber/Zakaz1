@@ -116,8 +116,57 @@ function OrderCard({ order, items, branchLabel }) {
   }
 
   function printOrder(){
-    // Открываем отдельную страницу печати — работает и в браузере и в PWA
-    window.open(`/admin/print?id=${order.id}`, '_blank')
+    const num = order.short_number||order.order_number||order.id.slice(0,8)
+    const branchName = BRANCHES.find(b=>b.id===order.branch_id)?.name||''
+    const time = new Date(order.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})
+    const date = new Date(order.created_at).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'})
+    const SEP = '------------------------'
+
+    // Формируем текст чека (48мм = ~24 символа в строке)
+    let lines = []
+    lines.push('')
+    lines.push('    НА ВИРАЖАХ')
+    lines.push('    ' + branchName)
+    lines.push(SEP)
+    lines.push('       ЗАКАЗ')
+    lines.push('     ' + num)
+    lines.push('  ' + date + '  ' + time)
+    lines.push(SEP)
+
+    if (order.customer_name) lines.push('Клиент: ' + order.customer_name)
+    if (order.comment) lines.push('Комм: ' + order.comment)
+    if (order.customer_name || order.comment) lines.push(SEP)
+
+    for (const i of (items||[])) {
+      let mods = []
+      try { mods = i.modifiers?(typeof i.modifiers==='string'?JSON.parse(i.modifiers):i.modifiers):[] } catch {}
+      const nameStr = i.item_name + ' x' + i.quantity
+      const priceStr = i.line_total + 'р'
+      const spaces = Math.max(1, 24 - nameStr.length - priceStr.length)
+      lines.push(nameStr + ' '.repeat(spaces) + priceStr)
+      if (mods.length) lines.push(' +' + mods.map(m=>m.name).join(', '))
+    }
+
+    lines.push(SEP)
+    const totalStr = 'ИТОГО: ' + order.total + ' р.'
+    lines.push(totalStr)
+    lines.push(SEP)
+    lines.push('  Спасибо за заказ!')
+    lines.push('')
+    lines.push('')
+
+    const text = lines.join('\n')
+
+    // Пробуем RawBT intent (Android PWA)
+    try {
+      const encoded = encodeURIComponent(text)
+      // RawBT принимает текст через intent
+      const intentUrl = 'intent://rawbt?' + encoded + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end'
+      window.location.href = intentUrl
+    } catch(e) {
+      // Fallback для браузера — открываем страницу печати
+      window.open('/admin/print?id=' + order.id, '_blank')
+    }
   }
 
   // Таймер
