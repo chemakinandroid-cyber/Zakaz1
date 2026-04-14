@@ -120,53 +120,116 @@ function OrderCard({ order, items, branchLabel }) {
     const branchName = BRANCHES.find(b=>b.id===order.branch_id)?.name||''
     const time = new Date(order.created_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})
     const date = new Date(order.created_at).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'})
-    const SEP = '------------------------'
 
-    // Формируем текст чека (48мм = ~24 символа в строке)
-    let lines = []
-    lines.push('')
-    lines.push('    НА ВИРАЖАХ')
-    lines.push('    ' + branchName)
-    lines.push(SEP)
-    lines.push('       ЗАКАЗ')
-    lines.push('     ' + num)
-    lines.push('  ' + date + '  ' + time)
-    lines.push(SEP)
+    // Таблица транслитерации UTF-8 → CP866 для кириллицы
+    const cp866map = {
+      'А':128,'Б':129,'В':130,'Г':131,'Д':132,'Е':133,'Ж':134,'З':135,
+      'И':136,'Й':137,'К':138,'Л':139,'М':140,'Н':141,'О':142,'П':143,
+      'Р':144,'С':145,'Т':146,'У':147,'Ф':148,'Х':149,'Ц':150,'Ч':151,
+      'Ш':152,'Щ':153,'Ъ':154,'Ы':155,'Ь':156,'Э':157,'Ю':158,'Я':159,
+      'а':160,'б':161,'в':162,'г':163,'д':164,'е':165,'ж':166,'з':167,
+      'и':168,'й':169,'к':170,'л':171,'м':172,'н':173,'о':174,'п':175,
+      'р':224,'с':225,'т':226,'у':227,'ф':228,'х':229,'ц':230,'ч':231,
+      'ш':232,'щ':233,'ъ':234,'ы':235,'ь':236,'э':237,'ю':238,'я':239,
+      'Ё':240,'ё':241,'р':224,
+    }
 
-    if (order.customer_name) lines.push('Клиент: ' + order.customer_name)
-    if (order.comment) lines.push('Комм: ' + order.comment)
-    if (order.customer_name || order.comment) lines.push(SEP)
+    function toCP866Bytes(str) {
+      const bytes = []
+      for (const ch of str) {
+        if (cp866map[ch] !== undefined) bytes.push(cp866map[ch])
+        else if (ch.charCodeAt(0) < 128) bytes.push(ch.charCodeAt(0))
+        else bytes.push(63) // '?' для неизвестных
+      }
+      return bytes
+    }
 
+    function line(text) {
+      return [...toCP866Bytes(text), 10] // 10 = LF
+    }
+
+    function sep() {
+      return line('------------------------')
+    }
+
+    function center(text, width=24) {
+      const pad = Math.max(0, Math.floor((width - text.length) / 2))
+      return line(' '.repeat(pad) + text)
+    }
+
+    function row(left, right, width=24) {
+      const spaces = Math.max(1, width - left.length - right.length)
+      return line(left + ' '.repeat(spaces) + right)
+    }
+
+    // ESC/POS команды
+    const ESC = 27, GS = 29
+
+    let bytes = []
+
+    // Инициализация + кодировка CP866
+    bytes.push(...[ESC, 64])           // ESC @ — сброс
+    bytes.push(...[ESC, 116, 17])      // ESC t 17 — CP866
+
+    // Заголовок по центру
+    bytes.push(...[ESC, 97, 1])        // ESC a 1 — выравнивание по центру
+    bytes.push(...[ESC, 33, 16])       // ESC ! — двойная высота
+    bytes.push(...toCP866Bytes('НА ВИРАЖАХ'), 10)
+    bytes.push(...[ESC, 33, 0])        // обычный шрифт
+    bytes.push(...toCP866Bytes(branchName), 10)
+
+    bytes.push(...sep())
+
+    // Номер заказа — крупно
+    bytes.push(...[GS, 33, 17])        // GS ! — двойной размер
+    bytes.push(...center('ЗАКАЗ'))
+    bytes.push(...[GS, 33, 34])        // ещё крупнее для номера
+    bytes.push(...center(num))
+    bytes.push(...[GS, 33, 0])         // обычный
+    bytes.push(...center(date + '  ' + time))
+
+    bytes.push(...sep())
+
+    // Клиент
+    bytes.push(...[ESC, 97, 0])        // выравнивание влево
+    if (order.customer_name) bytes.push(...line('Клиент: ' + order.customer_name))
+    if (order.comment) bytes.push(...line('Комм: ' + order.comment))
+    if (order.customer_name || order.comment) bytes.push(...sep())
+
+    // Позиции
     for (const i of (items||[])) {
       let mods = []
       try { mods = i.modifiers?(typeof i.modifiers==='string'?JSON.parse(i.modifiers):i.modifiers):[] } catch {}
       const nameStr = i.item_name + ' x' + i.quantity
-      const priceStr = i.line_total + 'р'
-      const spaces = Math.max(1, 24 - nameStr.length - priceStr.length)
-      lines.push(nameStr + ' '.repeat(spaces) + priceStr)
-      if (mods.length) lines.push(' +' + mods.map(m=>m.name).join(', '))
+      const priceStr = i.line_total + 'p'
+      bytes.push(...row(nameStr, priceStr))
+      if (mods.length) bytes.push(...line(' +' + mods.map(m=>m.name).join(',')))
     }
 
-    lines.push(SEP)
-    const totalStr = 'ИТОГО: ' + order.total + ' р.'
-    lines.push(totalStr)
-    lines.push(SEP)
-    lines.push('  Спасибо за заказ!')
-    lines.push('')
-    lines.push('')
+    bytes.push(...sep())
 
-    const text = lines.join('\n')
+    // Итого — крупно
+    bytes.push(...[ESC, 97, 1])        // центр
+    bytes.push(...[ESC, 33, 16])       // двойная высота
+    bytes.push(...toCP866Bytes('ИТОГО: ' + order.total + ' p.'), 10)
+    bytes.push(...[ESC, 33, 0])
 
-    // Пробуем RawBT intent (Android PWA)
-    try {
-      const encoded = encodeURIComponent(text)
-      // RawBT принимает текст через intent
-      const intentUrl = 'intent://rawbt?' + encoded + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end'
-      window.location.href = intentUrl
-    } catch(e) {
-      // Fallback для браузера — открываем страницу печати
-      window.open('/admin/print?id=' + order.id, '_blank')
-    }
+    bytes.push(...sep())
+    bytes.push(...center('Спасибо за заказ!'))
+    bytes.push(...[10, 10, 10])        // 3 пустые строки для отрыва
+
+    // Отрезка (если поддерживается)
+    bytes.push(...[GS, 86, 66, 0])
+
+    // Конвертируем в base64
+    const uint8 = new Uint8Array(bytes)
+    let binary = ''
+    for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i])
+    const base64 = btoa(binary)
+
+    // Отправляем в RawBT
+    const intentUrl = 'rawbt:base64,' + base64
+    window.location.href = intentUrl
   }
 
   // Таймер
