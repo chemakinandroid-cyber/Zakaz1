@@ -193,17 +193,50 @@ function OrderCard({ order, items, branchLabel }) {
     // Клиент
     bytes.push(...[ESC, 97, 0])        // выравнивание влево
     if (order.customer_name) bytes.push(...line('Клиент: ' + order.customer_name))
+    if (order.customer_phone) bytes.push(...line('Тел: ' + order.customer_phone))
     if (order.comment) bytes.push(...line('Комм: ' + order.comment))
-    if (order.customer_name || order.comment) bytes.push(...sep())
+    if (order.customer_name || order.customer_phone || order.comment) bytes.push(...sep())
 
     // Позиции
     for (const i of (items||[])) {
       let mods = []
       try { mods = i.modifiers?(typeof i.modifiers==='string'?JSON.parse(i.modifiers):i.modifiers):[] } catch {}
-      const nameStr = i.item_name + ' x' + i.quantity
+
+      // Название полностью, цена на отдельной строке справа если не влезает
       const priceStr = i.line_total + 'p'
-      bytes.push(...row(nameStr, priceStr))
-      if (mods.length) bytes.push(...line(' +' + mods.map(m=>m.name).join(',')))
+      const nameStr = i.item_name + ' x' + i.quantity
+      if (nameStr.length + priceStr.length + 1 <= 24) {
+        // Влезает в одну строку
+        bytes.push(...row(nameStr, priceStr))
+      } else if (nameStr.length <= 24) {
+        // Название в одну строку, цена на следующей справа
+        bytes.push(...line(nameStr))
+        bytes.push(...row('', priceStr))
+      } else {
+        // Название длинное — переносим слова
+        const words = nameStr.split(' ')
+        let currentLine = ''
+        for (const word of words) {
+          if ((currentLine + ' ' + word).trim().length <= 24) {
+            currentLine = (currentLine + ' ' + word).trim()
+          } else {
+            bytes.push(...line(currentLine))
+            currentLine = word
+          }
+        }
+        // Последняя строка с ценой
+        if (currentLine.length + priceStr.length + 1 <= 24) {
+          bytes.push(...row(currentLine, priceStr))
+        } else {
+          bytes.push(...line(currentLine))
+          bytes.push(...row('', priceStr))
+        }
+      }
+
+      // Каждая добавка на отдельной строке
+      for (const m of mods) {
+        bytes.push(...line('  + ' + m.name))
+      }
     }
 
     bytes.push(...sep())
