@@ -165,7 +165,7 @@ function OrderCard({ order, items, branchLabel }) {
     }
 
     // ESC/POS команды
-    const ESC = 27, GS = 29
+    const ESC = 27
 
     let bytes = []
 
@@ -173,21 +173,15 @@ function OrderCard({ order, items, branchLabel }) {
     bytes.push(...[ESC, 64])           // ESC @ — сброс
     bytes.push(...[ESC, 116, 17])      // ESC t 17 — CP866
 
-    // Заголовок по центру
-    bytes.push(...[ESC, 97, 1])        // ESC a 1 — выравнивание по центру
-    bytes.push(...[ESC, 33, 16])       // ESC ! — двойная высота
-    bytes.push(...toCP866Bytes('НА ВИРАЖАХ'), 10)
-    bytes.push(...[ESC, 33, 0])        // обычный шрифт
-    bytes.push(...toCP866Bytes(branchName), 10)
+    // Заголовок — без ESC масштабирования, центрируем вручную
+    bytes.push(...center('НА ВИРАЖАХ'))
+    bytes.push(...center(branchName))
 
     bytes.push(...sep())
 
-    // Номер заказа — крупно
-    bytes.push(...[GS, 33, 17])        // GS ! — двойной размер
+    // Номер заказа — центрируем пробелами
     bytes.push(...center('ЗАКАЗ'))
-    bytes.push(...[GS, 33, 34])        // ещё крупнее для номера
     bytes.push(...center(num))
-    bytes.push(...[GS, 33, 0])         // обычный
     bytes.push(...center(date + '  ' + time))
 
     bytes.push(...sep())
@@ -229,13 +223,16 @@ function OrderCard({ order, items, branchLabel }) {
       // Печатаем все строки названия кроме последней
       for (const l of nameLinesBuf) bytes.push(...line(l))
 
-      // Последняя строка названия + xN + точки + цена
-      const lastNamePart = nameCur  // последняя часть названия
+      // Последняя строка: название + xN + точки + цена
+      // Считаем длину в байтах CP866 (кириллица = 1 байт)
+      const lastNamePart = nameCur
       const qtyPart = ' ' + qtyStr  // ' x1'
-      const leftPart = lastNamePart + qtyPart  // "курица x1"
-      const dotsNeeded = W2 - leftPart.length - priceStr.length
+      const leftPart = lastNamePart + qtyPart
+      const leftBytes = toCP866Bytes(leftPart)
+      const priceBytes = toCP866Bytes(priceStr)
+      const dotsNeeded = WIDTH - leftBytes.length - priceBytes.length
       const dots = dotsNeeded > 1 ? '.'.repeat(dotsNeeded) : ' '
-      bytes.push(...toCP866Bytes(leftPart + dots + priceStr), 10)
+      bytes.push(...leftBytes, ...toCP866Bytes(dots + priceStr), 10)
 
       // Каждая добавка на отдельной строке
       for (const m of mods) {
