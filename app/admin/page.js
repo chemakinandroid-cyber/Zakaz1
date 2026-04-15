@@ -144,7 +144,7 @@ function OrderCard({ order, items, branchLabel }) {
       return bytes
     }
 
-    const WIDTH = 24 // 48мм ~24 символа шрифтом 12x24
+    const WIDTH = 32 // 48мм ~32 символа
 
     function line(text) {
       return [...toCP866Bytes(text), 10]
