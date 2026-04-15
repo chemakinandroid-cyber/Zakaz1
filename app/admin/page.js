@@ -165,7 +165,7 @@ function OrderCard({ order, items, branchLabel }) {
     }
 
     // ESC/POS команды
-    const ESC = 27
+    const ESC = 27, GS = 29
 
     let bytes = []
 
@@ -242,11 +242,10 @@ function OrderCard({ order, items, branchLabel }) {
 
     bytes.push(...sep())
 
-    // Итого — крупно
+    // Итого — по центру без масштабирования
     bytes.push(...[ESC, 97, 1])        // центр
-    bytes.push(...[ESC, 33, 16])       // двойная высота
     bytes.push(...toCP866Bytes('ИТОГО: ' + order.total + ' p.'), 10)
-    bytes.push(...[ESC, 33, 0])
+    bytes.push(...[ESC, 97, 0])        // влево
 
     bytes.push(...sep())
     bytes.push(...center('Спасибо за заказ!'))
