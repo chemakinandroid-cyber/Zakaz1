@@ -260,30 +260,8 @@ function OrderCard({ order, items, branchLabel }) {
     for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i])
     const base64 = btoa(binary)
 
-    // Визуальный лог для отладки на планшете
-    const dbg = document.getElementById('print-debug')
-    if (dbg) dbg.remove()
-    const debugEl = document.createElement('div')
-    debugEl.id = 'print-debug'
-    debugEl.style.cssText = 'position:fixed;bottom:80px;left:8px;right:8px;background:#1a1d27;color:#fff;padding:12px;border-radius:10px;font-size:11px;z-index:9999;word-break:break-all;max-height:200px;overflow:auto;'
-    debugEl.innerHTML = '<b>Debug:</b><br>UA: ' + navigator.userAgent.slice(0,60) + '...<br>base64 len: ' + base64.length + '<br>'
-    document.body.appendChild(debugEl)
-    setTimeout(() => debugEl.remove(), 15000)
-
-    // На Android — RawBT, на ПК — страница печати
-    const isAndroid = /android/i.test(navigator.userAgent)
-    debugEl.innerHTML += 'Android: ' + isAndroid + '<br>'
-    if (isAndroid) {
-      try {
-        window.location.href = 'rawbt:base64,' + base64
-        debugEl.innerHTML += 'Sent to RawBT ✓'
-      } catch(e) {
-        debugEl.innerHTML += 'Error: ' + e.message
-      }
-    } else {
-      window.open('/admin/print?id=' + order.id, '_blank')
-      debugEl.innerHTML += 'Opened print page'
-    }
+    // Отправляем в RawBT напрямую — без проверки платформы
+    window.location.href = 'rawbt:base64,' + base64
   }
 
   // Таймер
