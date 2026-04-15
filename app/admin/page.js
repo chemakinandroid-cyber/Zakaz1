@@ -144,20 +144,22 @@ function OrderCard({ order, items, branchLabel }) {
       return bytes
     }
 
+    const WIDTH = 32 // 48мм ~32 символа
+
     function line(text) {
-      return [...toCP866Bytes(text), 10] // 10 = LF
+      return [...toCP866Bytes(text), 10]
     }
 
     function sep() {
-      return line('------------------------')
+      return line('-'.repeat(WIDTH))
     }
 
-    function center(text, width=24) {
+    function center(text, width=WIDTH) {
       const pad = Math.max(0, Math.floor((width - text.length) / 2))
       return line(' '.repeat(pad) + text)
     }
 
-    function row(left, right, width=24) {
+    function row(left, right, width=WIDTH) {
       const spaces = Math.max(1, width - left.length - right.length)
       return line(left + ' '.repeat(spaces) + right)
     }
@@ -202,36 +204,38 @@ function OrderCard({ order, items, branchLabel }) {
       let mods = []
       try { mods = i.modifiers?(typeof i.modifiers==='string'?JSON.parse(i.modifiers):i.modifiers):[] } catch {}
 
-      // Название полностью, цена на отдельной строке справа если не влезает
+      // Название полностью без сокращений, цена всегда на строке с "xN"
       const priceStr = i.line_total + 'p'
-      const nameStr = i.item_name + ' x' + i.quantity
-      if (nameStr.length + priceStr.length + 1 <= 24) {
-        // Влезает в одну строку
-        bytes.push(...row(nameStr, priceStr))
-      } else if (nameStr.length <= 24) {
-        // Название в одну строку, цена на следующей справа
-        bytes.push(...line(nameStr))
-        bytes.push(...row('', priceStr))
-      } else {
-        // Название длинное — переносим слова
-        const words = nameStr.split(' ')
-        let currentLine = ''
-        for (const word of words) {
-          if ((currentLine + ' ' + word).trim().length <= 24) {
-            currentLine = (currentLine + ' ' + word).trim()
-          } else {
-            bytes.push(...line(currentLine))
-            currentLine = word
-          }
-        }
-        // Последняя строка с ценой
-        if (currentLine.length + priceStr.length + 1 <= 24) {
-          bytes.push(...row(currentLine, priceStr))
+      const qtyStr = 'x' + i.quantity
+      const fullNameStr = i.item_name + ' ' + qtyStr
+
+      // Формат: название переносится по словам
+      // Последняя строка: "xN.......360p" с точками-заполнителями
+      const W2 = WIDTH  // 24
+
+      // Сначала печатаем название (без xN) — переносим по словам
+      const nameWords = i.item_name.split(' ')
+      const nameLinesBuf = []
+      let nameCur = ''
+      for (const word of nameWords) {
+        const next = nameCur ? nameCur + ' ' + word : word
+        if (next.length <= W2) {
+          nameCur = next
         } else {
-          bytes.push(...line(currentLine))
-          bytes.push(...row('', priceStr))
+          if (nameCur) nameLinesBuf.push(nameCur)
+          nameCur = word
         }
       }
+      // Печатаем все строки названия кроме последней
+      for (const l of nameLinesBuf) bytes.push(...line(l))
+
+      // Последняя строка названия + xN + точки + цена
+      const lastNamePart = nameCur  // последняя часть названия
+      const qtyPart = ' ' + qtyStr  // ' x1'
+      const leftPart = lastNamePart + qtyPart  // "курица x1"
+      const dotsNeeded = W2 - leftPart.length - priceStr.length
+      const dots = dotsNeeded > 1 ? '.'.repeat(dotsNeeded) : ' '
+      bytes.push(...toCP866Bytes(leftPart + dots + priceStr), 10)
 
       // Каждая добавка на отдельной строке
       for (const m of mods) {
